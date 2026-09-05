@@ -27,7 +27,7 @@ Outputs land in the stage, never the main tree:
 
 Deploy exactly as before, pointed at the stage:
     python scripts/deploy_rbf.py --log <stage>/q_staged.log \\
-        --rbf <stage>/output_files/Psikyo_stp.rbf --name Arcade-Psikyo_NNN.rbf
+        --rbf <stage>/output_files/Psikyo_stp.rbf --name Psikyo_NNN.rbf
 
 The stage worktree persists between builds (Quartus's db/ with it, which
 costs nothing for full compiles but avoids re-checkout churn); each run
@@ -206,7 +206,7 @@ def main():
         print(" build is gated on closing it)")
 
     print("OK -- deploy with:\n  python scripts/deploy_rbf.py --log \"%s\" "
-          "--rbf \"%s\" --name Arcade-Psikyo_NNNNNNNN.rbf"
+          "--rbf \"%s\" --name Psikyo_NNNNNNNN.rbf"
           % (log_path, os.path.join(stage, "output_files", "%s.rbf" % args.rev)))
     return 0
 

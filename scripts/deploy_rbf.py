@@ -21,7 +21,7 @@ Two independent checks, because either alone can be fooled:
 
 Usage:
     python scripts/deploy_rbf.py --log quartus_video.log \\
-        --rbf output_files/Psikyo.rbf --name Arcade-Psikyo_20260840.rbf
+        --rbf output_files/Psikyo.rbf --name Psikyo_20260840.rbf
 """
 import argparse
 import os

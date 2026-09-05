@@ -27,14 +27,14 @@ Usage:
     # Deploy a freshly built .rbf and relaunch a game, then screenshot it:
     python scripts/mister_hw_test.py cycle \\
         --rbf output_files/Psikyo.rbf \\
-        --rbf-remote-name Arcade-Psikyo_20260822.rbf \\
+        --rbf-remote-name Psikyo_20260822.rbf \\
         --mra "/media/fat/_Arcade/_Psikyo/Samurai Aces (World).mra" \\
         --core samuraia \\
         --out scratch_screenshot.png
 
     # Or run the steps individually:
     python scripts/mister_hw_test.py deploy --rbf output_files/Psikyo.rbf \\
-        --rbf-remote-name Arcade-Psikyo_20260822.rbf
+        --rbf-remote-name Psikyo_20260822.rbf
     python scripts/mister_hw_test.py launch --mra "/media/fat/_Arcade/_Psikyo/Samurai Aces (World).mra"
     python scripts/mister_hw_test.py screenshot --core samuraia --out shot.png
 

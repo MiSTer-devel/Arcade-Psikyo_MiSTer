@@ -190,7 +190,7 @@ POST /api/launch {"path":"/media/fat/_Arcade/.../Game.mra"}
 
 ### Put the `.rbf` in the top-level cores directory
 
-`.mra` files reference it via a bare `<rbf>Arcade-Psikyo</rbf>` tag and MiSTer resolves it by
+`.mra` files reference it via a bare `<rbf>Psikyo</rbf>` tag and MiSTer resolves it by
 prefix-matching filenames in `/media/fat/_Arcade/cores/` only, not a path relative to the `.mra`. A
 misplaced `.rbf` gives a silent flash-and-return-to-menu, before ROM loading begins.
 

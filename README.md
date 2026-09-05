@@ -99,7 +99,8 @@ A 32MB SDRAM module is required.
 
 As per norm:
 
-* Take the latest *.rbf from the releases/ folder and put it in _Arcade/cores
+* Take the latest *.rbf from the releases/ folder and put it in _Arcade/cores,
+* Rename it to drop the `Arcade-` prefix
 * Take all the *.mra and _alternatives folder from releases/ and put it into _Arcade (or a subdirectory starting with an underscore)
 * Put the MAME merged, or split roms in games/mame
 
