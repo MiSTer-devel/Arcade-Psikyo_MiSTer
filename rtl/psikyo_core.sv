@@ -292,6 +292,7 @@ module psikyo_core #(
 	logic [8:0]  pal_s_addr;
 	logic [15:0] pal_s_data;
 	logic         comp_sprite_sel, comp_sprite_sel_d;
+	logic         comp_backdrop_black, comp_backdrop_black_d;
 	wire pal_mirror_hit = (pal_cpu_addr[11:9] == 3'd0);
 	dpram #(.ADDR_WIDTH(9), .DATA_WIDTH(16)) u_palette_snap (
 		.clk(clk),
@@ -705,6 +706,7 @@ module psikyo_core #(
 	logic         l0_enable, l1_enable;
 	logic         l0_opaque, l1_opaque;
 	logic         l0_transpen_sel, l1_transpen_sel;
+	logic         l0_bg_pen15, l1_bg_pen15;   // ctrl bit 2, backdrop only -- see compositor.sv
 	logic         l0_rs_en, l1_rs_en;
 	logic         l0_rs_pertile, l1_rs_pertile;
 
@@ -718,11 +720,11 @@ module psikyo_core #(
 		.layer1_rowscroll_addr(l1_rowscroll_addr), .layer1_rowscroll_data(l1_rowscroll_data),
 		.layer0_mode(l0_mode), .layer0_base_x_scroll(l0_base_x), .layer0_base_y_scroll(l0_base_y),
 		.layer0_bank(l0_bank), .layer0_enable(l0_enable), .layer0_opaque(l0_opaque),
-		.layer0_transpen_sel(l0_transpen_sel),
+		.layer0_transpen_sel(l0_transpen_sel), .layer0_bg_pen15(l0_bg_pen15),
 		.layer0_rowscroll_enable(l0_rs_en), .layer0_rowscroll_pertile(l0_rs_pertile),
 		.layer1_mode(l1_mode), .layer1_base_x_scroll(l1_base_x), .layer1_base_y_scroll(l1_base_y),
 		.layer1_bank(l1_bank), .layer1_enable(l1_enable), .layer1_opaque(l1_opaque),
-		.layer1_transpen_sel(l1_transpen_sel),
+		.layer1_transpen_sel(l1_transpen_sel), .layer1_bg_pen15(l1_bg_pen15),
 		.layer1_rowscroll_enable(l1_rs_en), .layer1_rowscroll_pertile(l1_rs_pertile),
 		.ka302c_banking(board_gunbird), .sh404_banking(board_sh404), .mcu_bctrl(mcu_bctrl),
 		.dbg_dump_en(vregs_dump_active), .dbg_dump_addr(vregs_dump_addr),
@@ -1149,8 +1151,10 @@ module psikyo_core #(
 	compositor u_compositor (
 		.l0_valid(l0_pixel_valid), .l0_pixel(l0_pixel_index), .l0_color(l0_pixel_color),
 		.l0_ctrl_enable(l0_enable & ~dbg_render_dis[1]), .l0_ctrl_opaque(l0_opaque), .l0_ctrl_transpen_sel(l0_transpen_sel),
+		.l0_ctrl_bg_pen15(l0_bg_pen15),
 		.l1_valid(l1_pixel_valid), .l1_pixel(l1_pixel_index), .l1_color(l1_pixel_color),
 		.l1_ctrl_enable(l1_enable & ~dbg_render_dis[2]), .l1_ctrl_opaque(l1_opaque), .l1_ctrl_transpen_sel(l1_transpen_sel),
+		.l1_ctrl_bg_pen15(l1_bg_pen15),
 		// Both sprite disables gate the compositor's LIVE per-pixel input,
 		// the same way the tilemap enables do: the OSD debug toggle and the
 		// game's own control-word bit (sprites_disable is deliberately live,
@@ -1158,7 +1162,8 @@ module psikyo_core #(
 		// render path itself keeps running -- matching the tilemaps, whose
 		// engines also render regardless and are gated only at composition.
 		.sp_present(sp_present & ~dbg_render_dis[0] & ~sprites_disable), .sp_pixel(sp_pixel), .sp_color(sp_color), .sp_priority(sp_priority),
-		.pal_addr(pal_addr), .pal_s_addr(pal_s_addr), .sprite_sel(comp_sprite_sel)
+		.pal_addr(pal_addr), .pal_s_addr(pal_s_addr), .sprite_sel(comp_sprite_sel),
+		.backdrop_black(comp_backdrop_black)
 	);
 
 	// Final RGB mux: both palette RAMs (live for tilemap/backdrop, snapshot
@@ -1175,9 +1180,23 @@ module psikyo_core #(
 	// hcnt is current for the whole 12-clock ce_pix period this pixel's
 	// palette read completes in, so the combinational mask is aligned
 	// with the data it masks.
-	always_ff @(posedge clk) comp_sprite_sel_d <= comp_sprite_sel;
+	//
+	// backdrop_black is MAME's m_palette->black_pen() screen-clear fallback
+	// (see compositor.sv): no palette entry can stand in for it here, so it
+	// rides alongside sprite_sel and forces black at this mux. It is
+	// registered for the same reason sprite_sel is -- it was decided a cycle
+	// earlier, with the pal_data it must line up with. A sprite still paints
+	// over it: MAME fills the bitmap first and draws sprites afterwards, and
+	// primask entry 0x00/0xFC/0xFE all leave bit 0 clear, so a sprite over
+	// bare backdrop wins. Hence the sprite_sel term is checked first.
+	always_ff @(posedge clk) begin
+		comp_sprite_sel_d    <= comp_sprite_sel;
+		comp_backdrop_black_d <= comp_backdrop_black;
+	end
 	assign rgb = (hcnt == 9'd0 || hcnt == 9'd319) ? 15'd0
-			   : comp_sprite_sel_d ? pal_s_data[14:0] : pal_data[14:0];
+			   : comp_sprite_sel_d ? pal_s_data[14:0]
+			   : comp_backdrop_black_d ? 15'd0
+			   : pal_data[14:0];
 
 
 	// ---- debug tracer (two buffers, no source selection) ------------------

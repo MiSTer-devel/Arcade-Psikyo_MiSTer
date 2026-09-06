@@ -130,8 +130,11 @@ gap as the tile-content aliasing that hid the ordinal truncation.
 The section below records the 2026-08-29 attempt and its parking. On
 2026-08-30 the line renderer was recovered from git history, root-caused,
 redesigned, and made the ONLY sprite path; `sprite_render_engine` +
-`sprite_frame_buffer` are retired from synthesis (kept in the tree as the
-golden reference for the differential testbench). Three distinct defects
+`sprite_frame_buffer` are retired from synthesis. `sprite_render_engine`
+stays in the tree as the golden reference for the differential testbench
+(`sim/sprite_line_tb/tb_sprite_line_diff.sv`); `sprite_frame_buffer` was
+deleted on 2026-09-05, having been referenced by nothing but its own
+unit test. Three distinct defects
 were found in the parked version:
 
 1. **Lost `line_start` pulses** (the parked diagnosis, confirmed by

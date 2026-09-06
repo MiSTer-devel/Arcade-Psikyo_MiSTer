@@ -24,6 +24,21 @@ module opl4_pcm (
 	input  logic        clk,
 	input  logic        reset,
 	input  logic        sample_tick,   // pulse: produce one output sample
+	// The engine advances only on cen. It used to run at full clk_sys, which
+	// made every path inside it a genuine single-cycle path and left the
+	// envelope rate chain (c_oct/c_rc -> p_eg_inc) as the design's worst
+	// family. Measured with all 24 channels keyed on, a pass took 553 of the
+	// 1948 clk_sys cycles between sample ticks -- 28%, so there was time to
+	// spend. At cen = clk_sys/2 a pass costs about 1106 and every internal
+	// path gets two periods, which Psikyo.sdc then states as a multicycle.
+	//
+	// What must NOT move to cen: the pulses arriving from full-rate logic.
+	// sample_tick, wavesel_stb and mem_rd_valid are one clk_sys cycle wide,
+	// so an engine that only looked on cen edges would miss them. They are
+	// latched at full rate below, AFTER the case, so a pulse landing on the
+	// same edge the engine consumes one is still not lost. This is the same
+	// failure adpcma_sample_cache had when it sampled req only in S_IDLE.
+	input  logic        cen,
 
 	// register file access (opl4_regs.sv)
 	output logic [7:0] pcm_raddr,
@@ -191,6 +206,12 @@ module opl4_pcm (
 	logic [17:0] w_lfo;
 	logic signed [15:0] w_sample;
 	logic [7:0]  w_byte0;
+
+	// Full-rate latches for the pulses above. Named fr_* because Psikyo.sdc
+	// has to exclude them from the opl4_pcm multicycle: they are written on
+	// every clk_sys edge, not only on cen.
+	logic        fr_mem_valid;
+	logic [7:0]  fr_mem_data;
 
 	// hoisted FSM scratch (Quartus 17 dislikes unnamed-block declarations)
 	logic [8:0]  hs_wavnum;
@@ -364,6 +385,8 @@ module opl4_pcm (
 			load_ch      <= 5'd0;
 			key_consume  <= 1'b0;
 			hdr_idx      <= 4'd0;
+			fr_mem_valid <= 1'b0;
+			fr_mem_data  <= 8'd0;
 			for (int i = 0; i < 24; i++) begin
 				ch_baseaddr[i] <= '0;   ch_format[i] <= '0;
 				ch_loop[i]      <= '0;   ch_end[i]     <= '0;
@@ -373,16 +396,15 @@ module opl4_pcm (
 				ch_tl[i]        <= {7'h7F, 10'd0};
 			end
 		end else begin
+			// Cleared at full rate so these stay one clk_sys cycle wide, which
+			// is what opl4.sv's arbiter and opl4_regs expect. They are set only
+			// inside the cen-gated case below, so they are excluded from the
+			// multicycle in Psikyo.sdc -- they capture on every edge.
 			pcm_hdr_we  <= 1'b0;
 			mem_rd_req  <= 1'b0;
 			key_consume <= 1'b0;
 
-			if (sample_tick) tick_pending <= 1'b1;
-			if (wavesel_stb) begin
-				load_pending <= 1'b1;
-				load_ch      <= wavesel_ch;
-			end
-
+			if (cen) begin
 			case (state)
 				S_IDLE: begin
 					if (load_pending) begin
@@ -420,12 +442,13 @@ module opl4_pcm (
 					mem_rd_addr <= hs_base;
 					state       <= S_HDR_WAIT;
 				end
-				S_HDR_WAIT: if (mem_rd_valid) begin
-					if (hdr_idx <= 4'd6) hdr_bytes[hdr_idx[2:0]] <= mem_rd_data;
+				S_HDR_WAIT: if (fr_mem_valid) begin
+					fr_mem_valid <= 1'b0;
+					if (hdr_idx <= 4'd6) hdr_bytes[hdr_idx[2:0]] <= fr_mem_data;
 					else begin
 						// bytes 7-11 write channel registers directly
 						pcm_hdr_we     <= 1'b1;
-						pcm_hdr_wdata <= mem_rd_data;
+						pcm_hdr_wdata <= fr_mem_data;
 						case (hdr_idx)
 							4'd7:  pcm_hdr_waddr <= 8'h80 + {3'd0, ch};
 							4'd8:  pcm_hdr_waddr <= 8'h98 + {3'd0, ch};
@@ -668,10 +691,11 @@ module opl4_pcm (
 				S_FETCH0: begin
 				  p_env_eff <= {1'b0, ch_env[ch]} + {1'b0, p_am}
 				             + {2'b00, ch_tl[ch][16:8]};
-				  if (mem_rd_valid) begin
-					w_byte0 <= mem_rd_data;
+				  if (fr_mem_valid) begin
+					fr_mem_valid <= 1'b0;
+					w_byte0 <= fr_mem_data;
 					if (ch_format[ch] == 2'd0) begin
-						w_sample <= {mem_rd_data, 8'd0};
+						w_sample <= {fr_mem_data, 8'd0};
 						state     <= S_OUT;
 					end else begin
 						// second byte: 16-bit -> pos*2+1; 12-bit -> middle byte
@@ -686,16 +710,17 @@ module opl4_pcm (
 				S_FETCH1: begin
 				  p_env_eff <= {1'b0, ch_env[ch]} + {1'b0, p_am}
 				             + {2'b00, ch_tl[ch][16:8]};
-				  if (mem_rd_valid) begin
+				  if (fr_mem_valid) begin
+					fr_mem_valid <= 1'b0;
 					if (ch_format[ch] == 2'd2)
-						w_sample <= {w_byte0, mem_rd_data};
+						w_sample <= {w_byte0, fr_mem_data};
 					// 12-bit packing (reference fetch_sample): the middle
 					// byte's LOW nibble belongs to the even sample, the
 					// HIGH nibble to the odd one
 					else if (!w_curpos[16])
-						w_sample <= {w_byte0, mem_rd_data[3:0], 4'd0};
+						w_sample <= {w_byte0, fr_mem_data[3:0], 4'd0};
 					else
-						w_sample <= {w_byte0, mem_rd_data[7:4], 4'd0};
+						w_sample <= {w_byte0, fr_mem_data[7:4], 4'd0};
 					state <= S_OUT;
 				  end
 				end
@@ -742,6 +767,20 @@ module opl4_pcm (
 
 				default: state <= S_IDLE;
 			endcase
+			end
+
+			// Full-rate pulse capture, deliberately AFTER the case: the case
+			// clears these when it consumes them, and a set has to win over a
+			// clear landing on the same edge or the event is dropped.
+			if (sample_tick) tick_pending <= 1'b1;
+			if (wavesel_stb) begin
+				load_pending <= 1'b1;
+				load_ch      <= wavesel_ch;
+			end
+			if (mem_rd_valid) begin
+				fr_mem_valid <= 1'b1;
+				fr_mem_data  <= mem_rd_data;
+			end
 		end
 	end
 

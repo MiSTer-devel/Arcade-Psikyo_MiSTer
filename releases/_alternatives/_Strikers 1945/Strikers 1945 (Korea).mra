@@ -59,7 +59,7 @@
 
 	<switches default="FD,FF,0F">
 
-		<dip name="Flip Screen" bits="0" ids="On,Off"/>
+		<!-- <dip name="Flip Screen" bits="0" ids="On,Off"/> -->
 		<dip name="Demo Sounds" bits="1" ids="On,Off"/>
 		<dip name="Difficulty" bits="2,3" ids="Hardest,Hard,Easy,Normal"/>
 		<dip name="Lives" bits="4,5" ids="4,2,1,3"/>

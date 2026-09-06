@@ -95,7 +95,10 @@ roms/
 # decoded traces pile up fast during bring-up -- entirely local working
 # material, never committed. scripts/decode_trace.py writes every decode to
 # debug/captures/ keyed by capture type and settings, so those persist locally
-# as a comparison record without entering the repo.
+# as a comparison record without entering the repo. The bare `debug/` rule
+# below matches at any depth, so it covers scripts/debug/captures/ too --
+# those files were tracked before the rule could take effect and have since
+# been untracked.
 /*.png
 /*.txt
 debug/

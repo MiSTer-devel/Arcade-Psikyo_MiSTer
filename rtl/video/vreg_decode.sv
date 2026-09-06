@@ -61,6 +61,7 @@ module vreg_decode (
 	output logic         layer0_enable,
 	output logic         layer0_opaque,          // ctrl bit 1, compositor's l0_ctrl_opaque
 	output logic         layer0_transpen_sel,     // ctrl bit 3, compositor's l0_ctrl_transpen_sel
+	output logic         layer0_bg_pen15,         // ctrl bit 2, compositor's l0_ctrl_bg_pen15
 	output logic         layer0_rowscroll_enable,
 	output logic         layer0_rowscroll_pertile,
 
@@ -71,6 +72,7 @@ module vreg_decode (
 	output logic         layer1_enable,
 	output logic         layer1_opaque,
 	output logic         layer1_transpen_sel,
+	output logic         layer1_bg_pen15,
 	output logic         layer1_rowscroll_enable,
 	output logic         layer1_rowscroll_pertile,
 
@@ -148,6 +150,16 @@ module vreg_decode (
 	assign layer0_enable            = ~l0_ctrl[0];
 	assign layer0_opaque            = l0_ctrl[1];
 	assign layer0_transpen_sel      = l0_ctrl[3];
+	// Bit 2 is "?" in psikyo_v.cpp's own bit table, but the screen-clear
+	// rewrite in MAME PR 16050 ("psikyo.cpp: Fix background colour") gives it
+	// a job: bits 3 and 2 are a symmetric pair of "this pen is NOT the
+	// transparent one" flags, and whichever pen is not transparent supplies
+	// that layer's screen-clear colour. Bit 3 clear -> pen 0 is solid; bit 2
+	// clear -> pen 15 is solid (and outranks pen 0 when both are clear).
+	// Only the backdrop path in compositor.sv consumes this -- bit 2 has no
+	// effect on tile drawing, where bit 3 alone still picks the transparent
+	// pen via set_transparent_pen().
+	assign layer0_bg_pen15          = ~l0_ctrl[2];
 	assign layer0_mode              = l0_ctrl[7:6];
 	// Row-scroll is active when EITHER control bit is set -- psikyo_v.cpp
 	// gates on `layer_ctrl[layer] & 0x0300`, with bit 9 selecting per-tile
@@ -163,6 +175,7 @@ module vreg_decode (
 	assign layer1_enable            = ~l1_ctrl[0];   // active low, see layer0_enable
 	assign layer1_opaque            = l1_ctrl[1];
 	assign layer1_transpen_sel      = l1_ctrl[3];
+	assign layer1_bg_pen15          = ~l1_ctrl[2];   // see layer0_bg_pen15
 	assign layer1_mode              = l1_ctrl[7:6];
 	assign layer1_rowscroll_enable  = l1_ctrl[8] | l1_ctrl[9];
 	assign layer1_rowscroll_pertile = l1_ctrl[9];

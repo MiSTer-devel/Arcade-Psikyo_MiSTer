@@ -66,6 +66,19 @@ module opl4 (
 		end
 	end
 
+	// PCM engine enable: every other clk_sys cycle. opl4_pcm used to advance
+	// on every edge, which made its envelope rate chain the design's worst
+	// timing family with nothing legitimate to constrain -- unlike jt12's
+	// blocks it had no clock enable, so a multicycle would have been a lie.
+	// It has the cycles to spare: measured 553 busy cycles of the 1948
+	// between sample ticks with all 24 channels playing, so halving the rate
+	// takes a pass to about 1106 and still finishes with margin.
+	logic pcm_cen;
+	always_ff @(posedge clk or posedge reset) begin
+		if (reset) pcm_cen <= 1'b0;
+		else        pcm_cen <= ~pcm_cen;
+	end
+
 	logic [9:0] div768, div684;
 	logic        sample_tick, fm_tick;
 	always_ff @(posedge clk or posedge reset) begin
@@ -164,7 +177,7 @@ module opl4 (
 	logic signed [15:0] pcm_l, pcm_r;
 
 	opl4_pcm u_pcm (
-		.clk(clk), .reset(reset), .sample_tick(sample_tick),
+		.clk(clk), .reset(reset), .cen(pcm_cen), .sample_tick(sample_tick),
 		.pcm_raddr(pcm_raddr), .pcm_rdata(pcm_rdata),
 		.pcm_hdr_we(pcm_hdr_we), .pcm_hdr_waddr(pcm_hdr_waddr), .pcm_hdr_wdata(pcm_hdr_wdata),
 		.keyon_stb(keyon_stb), .keyon_ch(keyon_ch), .keyon_val(keyon_val),

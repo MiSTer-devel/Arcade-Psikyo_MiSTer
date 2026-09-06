@@ -30,6 +30,12 @@ Supports the following games
 
 ## History
 
+* Arcade-Psikyo_20260907.rbf
+  * **HQ2X scaler reinstated**
+  * Background/screen clear logic changed. Gives good results, but not completely got to the bottom of it.
+  * MRAs now reference `<rbf>Psikyo</rbf>` without the `Arcade-` prefix, so the .rbf needs renaming when installing by hand (see below)
+  * Flip Screen DIP commented out in the MRAs as not implemented
+
 * Arcade-Psikyo_20260904.rbf
   * Fix total loss of sound in Strikers 1945 and Tengai, a regression in 20260903
   * **Intentionally broken HQ2X scaler to close timing still**
@@ -108,7 +114,7 @@ As per norm:
 
 Games are in good shape, with minor graphical issues around screen clear.
 The release revision closes timing (worst-case clk_sys setup slack
-+0.220 ns, zero failing paths on any clock).
++0.126 ns, zero failing paths on any clock).
 
 Details:
 

@@ -379,11 +379,59 @@ enabled, or black if neither"), but per this project's standing rule — MAME's 
 the accuracy target, not a guess at more-correct hardware — the original RTL reproduced this
 exact quirk: `bgpen = palette[(layer0_ctrl & 8) ? 0x800 : 0x80f]`, unconditionally.
 
-**Update, live on hardware 2026-08-29:** the built `compositor.sv` now deliberately diverges
-from that MAME quirk — the backdrop is a FIXED pen 0 (`palette[0x800]`), never selected by
-layer 0's transparent-pen bit, per the MAME renderer author's direction: the pen-15 branch put
-a magenta clear on screen whenever that bit chose pen 15. The live source is `compositor.sv`'s
-own backdrop comment.
+**Update, live on hardware 2026-08-29:** the built `compositor.sv` diverged from that MAME
+quirk — the backdrop became a FIXED pen 0 (`palette[0x800]`), never selected by layer 0's
+transparent-pen bit, per the MAME renderer author's direction: the pen-15 branch put a magenta
+clear on screen whenever that bit chose pen 15. That was later relaxed to "topmost enabled
+layer, its transpen-selected pen". **Both are superseded — see below.**
+
+**Update, MAME PR 16050 (2026-09-03):** upstream replaced the dead `layers_ctrl` chain
+outright, in *"psikyo.cpp: Fix background colour"*, and this core now follows it:
+
+```c
+bgpen = m_palette->black_pen();              // fallback
+for (int layer = 0; layer < 2; layer++)
+    if (~layer_ctrl[layer] & 1)              // enabled (active low)
+    {
+        if (~layer_ctrl[layer] & 8) bgpen = m_palette->pen(base[layer] + 0x00);
+        if (~layer_ctrl[layer] & 4) bgpen = m_palette->pen(base[layer] + 0x0f);
+    }
+```
+
+Bits 3 and 2 are a symmetric pair of *"this pen is **not** the transparent one"* flags, and
+whichever pen is not transparent supplies that layer's clear colour. Because it is a sequence
+of overwrites, precedence runs **layer 1 pen 15 > layer 1 pen 0 > layer 0 pen 15 > layer 0
+pen 0 > black**. Four consequences, each covered by a case in `sim/compositor_tb`:
+
+1. **Neither layer enabled now clears to BLACK**, not `palette[0x800]`. This is visible: the
+   per-game control words psikyo_v.cpp records include gunbird's `00e1/04e1` "blink, on scene
+   transitions", which sets bit 0 (disable) on *both* layers.
+2. **Bit 2 is decoded for the first time** (`vreg_decode.sv`'s `layerN_bg_pen15`). MAME's own
+   bit table still lists it as `?`; it affects the screen clear only, never tile drawing.
+3. **Enabled is no longer sufficient** — a layer with bits 3 and 2 both set offers nothing, and
+   the *other* layer's choice stands. The old `else if (l1_ctrl_enable)` chain let layer 1 shut
+   layer 0 out on its enable bit alone.
+4. **Tengai changes colour.** Its recorded `L:0178-0508` has bit 3 set (hence its
+   "Transpen is 0 as opposed to 15" note) but bit 2 clear, so the clear is now pen 15 of layer
+   1's clear base (`0x80F`) where the previous rule gave that base's pen 0 (`0x800`).
+
+**Palette bases follow the PR exactly**: `pen(layer*0x400 + 0x400)` / `+ 0x40f`, i.e.
+`0x400`/`0x40f` for layer 0 and `0x800`/`0x80f` for layer 1. This core briefly used
+`0x800`/`0xC00` instead, reasoning that the PR's bases sit one `0x400` bank *below* the layers'
+real palette banks — the tiles' `GFXDECODE_ENTRY` has colorbase `0x800` and `get_tile_info` adds
+`Layer*0x40` colours, putting layer 0 at `0x800-0x87F` and layer 1 at `0xC00-0xC7F` — which made
+`0x400` look like an off-by-one-bank slip against the PR's own pre-image of `0x800`/`0x80f`. It is
+not a slip: confirmed by the author of PR 16050, who also wrote MAME's Psikyo renderer. The clear
+colour is simply not taken from the same bank the layer draws from.
+
+One deliberate deviation from the PR as written, flagged in `compositor.sv`:
+
+- **`black_pen()`** is a MAME palette entry appended past the 4096 configured ones. This core's
+  palette RAM is exactly the 4096 CPU-written entries with no spare, so the fallback is carried
+  out of band on `compositor.sv`'s `backdrop_black` output and applied at `psikyo_core.sv`'s RGB
+  mux, which already force-blacks the two edge columns the same way.
+
+PR 16050 was still **open and unreviewed** upstream when this was ported; revisit if it changes.
 
 **Palette addressing**: `xRGB_555`, 4096 entries, 8KB (`docs/phase1_memory_map.md`). Combining
 with `tile_cell_decode`'s `color` output (already includes layer 1's `+64` offset) and the

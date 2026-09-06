@@ -100,6 +100,10 @@ set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
+
+# Source files are listed in files.qip, sourced above -- not here. This file
+# used to repeat all 121 of them, so every source was assigned twice and the
+# two lists could drift apart silently. Add new sources to files.qip.
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
 set_location_assignment PIN_U9 -to ADC_CONVST
 set_location_assignment PIN_V10 -to ADC_SCK
@@ -253,53 +257,6 @@ set_global_assignment -name DEVICE 5CSEBA6U23I7
 set_global_assignment -name FAMILY "Cyclone V"
 set_global_assignment -name CDF_FILE jtag.cdf
 set_global_assignment -name QIP_FILE sys/sys.qip
-set_global_assignment -name QIP_FILE rtl/pll.qip
-set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_Pack.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_ALU.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68KdotC_Kernel.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_Pack.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_MCode.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_ALU.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_Reg.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80.vhd
-set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80se.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/maincpu.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sound_cpu_sngkace.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sound_cpu_gunbird.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/dpram.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/vreg_decode.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/spriteram_dbuf.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/video_timing.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_coord.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_addrgen.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tile_cell_decode.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tile_row_decode.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_line_engine.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_display_list_walker.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_record_fetch.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_record_decode.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_pos_transform.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_lut.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_subtile_step.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_src_index.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_list.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_engine.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_buffer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/compositor.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/debug_tracer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/psikyo_core.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram/sdram.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_phy.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter5.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter2.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_narrow_bridge.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/gfxrom_byte_reorder.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_download.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/psikyo_sdram_top.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/psikyo_top.sv
-set_global_assignment -name SDC_FILE Psikyo.sdc
-set_global_assignment -name SYSTEMVERILOG_FILE Psikyo.sv
 set_instance_assignment -name FAST_INPUT_REGISTER ON -to SDRAM_DQ[*]
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to HDMI_TX_CLK
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to HDMI_TX_DE
@@ -367,8 +324,60 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to USER_IO[*]
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to VGA_EN
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name VERILOG_MACRO "DEBUG_ISSP=1"
+set_global_assignment -name SEED 7
+
+
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_Pack.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_ALU.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68KdotC_Kernel.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_Pack.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_MCode.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_ALU.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80_Reg.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/t80/T80se.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/maincpu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/s1945_mcu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/opl4/opl4.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/opl4/opl4_regs.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/opl4/opl4_pcm.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/sound_cpu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/sound/adpcma_sample_cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/dpram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/vreg_decode.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/spriteram_dbuf.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/video_timing.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_coord.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_addrgen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tile_cell_decode.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tile_row_decode.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/tilemap_line_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/crt_adjust.sv
+set_global_assignment -name VERILOG_FILE rtl/hiscore.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/ddram_phy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/rom_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_display_list_walker.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_record_fetch.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_record_decode.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_pos_transform.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_lut.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_subtile_step.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_src_index.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/compositor.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/psikyo_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/debug_tracer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/gfxrom_byte_reorder.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_download.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram/sdram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_phy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter6.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_narrow_bridge.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/psikyo_sdram_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/psikyo_top.sv
+set_global_assignment -name SDC_FILE Psikyo.sdc
+set_global_assignment -name SYSTEMVERILOG_FILE Psikyo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/screen_rotate_two.sv
 set_global_assignment -name VERILOG_FILE rtl/sound/jt10/hdl/jt03.v
 set_global_assignment -name VERILOG_FILE rtl/sound/jt10/hdl/jt03_acc.v
@@ -446,6 +455,7 @@ set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_dcrm.v
 set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_dcrm2.v
 set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_dly.v
 set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_mave.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_buffer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_list.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/issp_probe.sv
-set_global_assignment -name SEED 7
-

@@ -26,6 +26,7 @@ module tb_vreg_decode;
 	logic         layer0_enable, layer1_enable;
 	logic         layer0_opaque, layer1_opaque;
 	logic         layer0_transpen_sel, layer1_transpen_sel;
+	logic         layer0_bg_pen15, layer1_bg_pen15;   // ctrl bit 2, inverted
 	logic         layer0_rowscroll_enable, layer1_rowscroll_enable;
 	logic         layer0_rowscroll_pertile, layer1_rowscroll_pertile;
 
@@ -118,6 +119,24 @@ module tb_vreg_decode;
 		if (layer1_mode !== 2'b11)               begin errors++; $display("FAIL l1 mode=%b expected=11", layer1_mode); end
 		if (layer1_rowscroll_enable !== 1'b1)   begin errors++; $display("FAIL l1 rowscroll_enable"); end
 		if (layer1_rowscroll_pertile !== 1'b1)  begin errors++; $display("FAIL l1 rowscroll_pertile"); end
+		// Control bit 2 (backdrop pen-15 select, MAME PR 16050) is INVERTED
+		// on the way out, like enable: MAME tests `~layer_ctrl[layer] & 4`.
+		// Both control words above have bit 2 clear, so both decode to 1.
+		if (layer0_bg_pen15 !== 1'b1)            begin errors++; $display("FAIL l0 bg_pen15 (bit2 clear -> 1)"); end
+		if (layer1_bg_pen15 !== 1'b1)            begin errors++; $display("FAIL l1 bg_pen15 (bit2 clear -> 1)"); end
+
+		// ... and the other polarity: bit 2 SET must decode to 0. Written as
+		// a separate pair of writes because no other field in this TB's
+		// control words exercises bit 2 at all.
+		cpu_write(13'h0209, 16'b0000_0001_1000_1110);   // l0, bit2 now set
+		cpu_write(13'h020B, 16'b0000_0011_1100_0100);   // l1, bit2 now set
+		@(posedge clk); #1;
+		if (layer0_bg_pen15 !== 1'b0)            begin errors++; $display("FAIL l0 bg_pen15 (bit2 set -> 0)"); end
+		if (layer1_bg_pen15 !== 1'b0)            begin errors++; $display("FAIL l1 bg_pen15 (bit2 set -> 0)"); end
+		// Restore the words the later cases were written against.
+		cpu_write(13'h0209, 16'b0000_0001_1000_1010);
+		cpu_write(13'h020B, 16'b0000_0011_1100_0000);
+		@(posedge clk); #1;
 
 		// SH404 banking: bctrl[5:4] -> layer0, bctrl[7:6] -> layer1, and it
 		// wins over ka302c_banking (docs/phase2_sh404.md).

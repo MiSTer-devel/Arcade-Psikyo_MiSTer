@@ -3,13 +3,13 @@
 // resolved palette index -> xRGB_555 RGB. Per-pixel priority mux, not a
 // persisted priority bitmap -- see docs/phase1_video_engine.md,
 // "Compositor: backdrop, transparent-pen, and palette lookup" for the full
-// derivation (traced directly from screen_update(), including a real MAME
-// quirk: the backdrop color is ALWAYS derived from layer 0's
-// transparent-pen-select bit alone, regardless of which layer is actually
-// enabled -- `layers_ctrl`, which would select otherwise, is hardcoded to
-// -1 in the current driver, making that fallback logic dead code. This RTL
-// reproduces that exact behavior rather than the probably-intended
-// alternative, per this project's standing "match MAME" rule.
+// derivation (traced directly from screen_update()).
+//
+// The screen-clear/backdrop rule follows MAME PR 16050, "psikyo.cpp: Fix
+// background colour", which replaced screen_update()'s dead `layers_ctrl`
+// branch (a local hardcoded to -1, so only its first arm ever ran and the
+// clear always came from layer 0) with a loop over both layers. See the
+// backdrop mux at the bottom of this file for the exact translation.
 //
 // Sprite opacity needs no per-pixel check here: sprite_render_engine
 // already applied trans_pen0/trans_pen15 before ever writing to the frame
@@ -33,6 +33,8 @@ module compositor (
 	input logic         l0_ctrl_enable,        // layer_ctrl[0] bit 0
 	input logic         l0_ctrl_opaque,        // layer_ctrl[0] bit 1
 	input logic         l0_ctrl_transpen_sel,  // layer_ctrl[0] bit 3 (1 -> pen 0 transparent, 0 -> pen 15)
+	input logic         l0_ctrl_bg_pen15,      // layer_ctrl[0] bit 2, INVERTED by vreg_decode
+	                                            // (1 = bit clear = pen 15 is this layer's clear colour)
 
 	input logic         l1_valid,
 	input logic [3:0]  l1_pixel,
@@ -40,6 +42,7 @@ module compositor (
 	input logic         l1_ctrl_enable,
 	input logic         l1_ctrl_opaque,
 	input logic         l1_ctrl_transpen_sel,
+	input logic         l1_ctrl_bg_pen15,
 
 	input logic         sp_present,
 	input logic [3:0]  sp_pixel,
@@ -56,7 +59,17 @@ module compositor (
 	// cycle later (BRAM read latency) and owns the final RGB mux.
 	output logic [11:0] pal_addr,     // live palette: tilemap/backdrop entry
 	output logic [8:0]  pal_s_addr,   // snapshot palette: sprite entry
-	output logic         sprite_sel    // 1 = sprite lookup wins this pixel
+	output logic         sprite_sel,   // 1 = sprite lookup wins this pixel
+
+	// MAME's screen clear falls back to m_palette->black_pen() when neither
+	// layer offers a clear colour. black_pen() is a dedicated entry appended
+	// past the 0x1000 configured palette entries; this core's palette RAM is
+	// exactly the 4096 CPU-writable entries with no spare, and every entry is
+	// game-written, so there is no address that reliably reads back black.
+	// The fallback is therefore signalled out of band and applied at the RGB
+	// mux in psikyo_core.sv (which already force-blacks the two edge columns
+	// the same way). pal_addr still holds a defined value while this is set.
+	output logic         backdrop_black
 );
 
 	// ---- per-layer opacity ----
@@ -108,8 +121,7 @@ module compositor (
 	// {color,pixel} concatenation IS color*16+pixel exactly since pixel is
 	// always a 4-bit low nibble -- no actual multiply needed.
 	// sprite:  0x000 + color*16 + pixel, same trick.
-	// backdrop: layer 0's transparent-pen-select bit picks pen 0 (0x800) or
-	// pen 15 (0x80f) -- unconditionally, see header comment.
+	// backdrop: see the screen-clear mux below.
 	logic [10:0] l1_pal_offset, l0_pal_offset;   // color(7b)*16+pixel(4b), max 71*16+15=1151
 	logic [8:0]  sp_pal_offset;                    // color(5b)*16+pixel(4b), max 31*16+15=511
 	assign l1_pal_offset = {l1_color, l1_pixel};
@@ -119,23 +131,73 @@ module compositor (
 	assign pal_s_addr = sp_pal_offset;
 	assign sprite_sel  = sprite_wins;
 
+	// ---- backdrop / screen clear ----
+	// MAME PR 16050 replaced the old dead-code `layers_ctrl` chain with:
+	//
+	//     bgpen = m_palette->black_pen();          // fallback
+	//     for (int layer = 0; layer < 2; layer++)
+	//         if (~layer_ctrl[layer] & 1)          // enabled
+	//         {
+	//             if (~layer_ctrl[layer] & 8)      // not transparent
+	//                 bgpen = m_palette->pen(<layer base> + 0x00);
+	//             if (~layer_ctrl[layer] & 4)      // not transparent
+	//                 bgpen = m_palette->pen(<layer base> + 0x0f);
+	//         }
+	//
+	// It is a sequence of overwrites, so the LAST assignment that fires wins.
+	// Unrolled into a priority mux that is highest-precedence-first, the
+	// order is exactly the reverse of the write order: layer 1's pen 15,
+	// layer 1's pen 0, layer 0's pen 15, layer 0's pen 0, then black.
+	//
+	// A layer being enabled is no longer sufficient on its own: if both bits
+	// 3 and 2 are set the layer contributes nothing and the next candidate
+	// down applies. That is the one place this differs structurally from an
+	// `else if (l1_ctrl_enable)` chain, which let an enabled layer 1 shut
+	// layer 0 out even when it had no colour of its own to offer.
+	//
+	// PALETTE BASES MATCH PR 16050 EXACTLY: `m_palette->pen(layer*0x400 +
+	// 0x400)` / `+ 0x40f`, so 0x400/0x40f for layer 0 and 0x800/0x80f for
+	// layer 1.
+	//
+	// This core briefly used 0x800/0xC00 instead, on the reasoning that the
+	// PR's bases sit one 0x400 bank below where the tiles' own palette lives:
+	// gfx_psikyo gives the tiles GFXDECODE_ENTRY a colorbase of 0x800, and
+	// get_tile_info adds Layer*0x40 colours (= 0x400 entries), so layer 0
+	// draws from 0x800-0x87F and layer 1 from 0xC00-0xC7F, which made 0x400
+	// look like an off-by-one-bank slip against the PR's own pre-image of
+	// 0x800/0x80f.
+	//
+	// It is not a slip. Confirmed 2026-09-05 by the author of PR 16050, who
+	// also wrote MAME's Psikyo renderer: 0x400 is intentional, and this core
+	// follows MAME rather than the inference above. The clear colour is
+	// simply not taken from the same bank the layer draws from.
+	logic bd_l0_pen0, bd_l0_pen15, bd_l1_pen0, bd_l1_pen15;
+	assign bd_l0_pen0  = l0_ctrl_enable && !l0_ctrl_transpen_sel; // bit 3 clear
+	assign bd_l0_pen15 = l0_ctrl_enable &&  l0_ctrl_bg_pen15;     // bit 2 clear
+	assign bd_l1_pen0  = l1_ctrl_enable && !l1_ctrl_transpen_sel;
+	assign bd_l1_pen15 = l1_ctrl_enable &&  l1_ctrl_bg_pen15;
+
+	// Gated on neither layer drawing, not just on the candidates being
+	// absent: psikyo_core's RGB mux applies this ahead of pal_data, so an
+	// ungated version would black out a perfectly good tile pixel whenever
+	// the layer that drew it happened to offer no clear colour (an enabled
+	// layer with control bits 3 and 2 both set does exactly that). Sprites
+	// need no term here -- sprite_sel is tested first at that mux.
+	assign backdrop_black = !l1_draws && !l0_draws &&
+							!(bd_l0_pen0 || bd_l0_pen15 || bd_l1_pen0 || bd_l1_pen15);
+
 	always_comb begin
 		if (l1_draws)
 			pal_addr = 12'h800 + {1'b0, l1_pal_offset};
 		else if (l0_draws)
 			pal_addr = 12'h800 + {1'b0, l0_pal_offset};
-		else if (l1_ctrl_enable)
-			// Backdrop/screen-clear (per the MAME renderer author):
-			// the clear colour comes from the topmost ENABLED layer's own
-			// palette bank, at that layer's transpen-selected pen --
-			// layer 1's bank starts at 0xC00 (its colours carry the +64
-			// bank offset), layer 0's at 0x800. transpen_sel set (ctrl
-			// bit 3) selects pen 0, clear selects pen 15.
-			pal_addr = l1_ctrl_transpen_sel ? 12'hC00 : 12'hC0F;
-		else if (l0_ctrl_enable)
-			pal_addr = l0_ctrl_transpen_sel ? 12'h800 : 12'h80F;
-		else
-			pal_addr = 12'h800;
+		else if (bd_l1_pen15) pal_addr = 12'h80F;
+		else if (bd_l1_pen0)  pal_addr = 12'h800;
+		else if (bd_l0_pen15) pal_addr = 12'h40F;
+		else if (bd_l0_pen0)  pal_addr = 12'h400;
+		// backdrop_black is set here; pal_addr just needs to stay defined
+		// (psikyo_core.sv's debug snapshot latches it every pixel).
+		else                   pal_addr = 12'h800;
 	end
 
 endmodule

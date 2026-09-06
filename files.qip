@@ -67,12 +67,11 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_pos_transform.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_lut.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_subtile_step.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_zoom_src_index.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_render_engine.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_frame_buffer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/compositor.sv
 
 # Video+CPU integration.
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/psikyo_core.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/debug_tracer.sv
 
 # SDRAM backend: burst-4 controller (vendored/adapted, see
 # rtl/memory/sdram/PROVENANCE.md), req/valid wrapper, 5-way arbiter, narrow
@@ -82,6 +81,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_download.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram/sdram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_phy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter6.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_arbiter2.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/sdram_narrow_bridge.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/memory/psikyo_sdram_top.sv
 
@@ -174,4 +174,5 @@ set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_dly.v
 set_global_assignment -name VERILOG_FILE rtl/sound/jt49/hdl/filter/jt49_mave.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_engine.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_buffer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/sprite_line_list.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/debug/issp_probe.sv

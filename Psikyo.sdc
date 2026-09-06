@@ -148,7 +148,21 @@ if {[get_collection_size $vidsrc] > 0 && [get_collection_size $palbram] > 0} {
 #   * jt12_pg's stage-II regs as SOURCES (detune_mod_II -> the pg_sum /
 #     jt12_sh_rst pipeline): already audited clk_en-gated above.
 #   * jt12_sh_rst (u_pad) as a destination: single clocked block, clk_en.
-set jtsrc [get_registers {*|jt10:u_ym2610|*jt12_reg:u_reg|cur_ch[*] *|jt10:u_ym2610|*jt12_reg:u_reg|cur_op[*] *|jt10:u_ym2610|*jt12_lfo:*|lfo_mod[*] *|jt10:u_ym2610|*jt12_pg:u_pg|phinc_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|keycode_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|detune_mod_II[*]}]
+# Extended after the OPL4 engine moved to a clock enable: with opl4_pcm off
+# the critical path entirely, this became the design's worst family
+# (-0.102 ns at seed 8, and the whole failing set).
+#   * jt12_mmr's `effect` (CH3 special mode, YM register 0x27 bits 7:6):
+#     written at jt12_mmr.v:307, inside the memory_mapped_registers block's
+#     `if (write)` -- so it changes ONLY when the sound CPU writes 0x27, at
+#     driver cadence, not FM cadence. Every transition is orders of
+#     magnitude further apart than cen. It reaches phinc_II through the CH3
+#     per-operator fnum select in jt12_pg, whose stage-II registers are the
+#     already-audited clk_en-gated destinations above, so the multicycle is
+#     justified from both ends.
+#     Note this is a CONSTRAINT, not a fork: nothing in vendored jt10
+#     changes, which matters for a core whose ADPCM path took weeks to
+#     stabilise.
+set jtsrc [get_registers {*|jt10:u_ym2610|*jt12_reg:u_reg|cur_ch[*] *|jt10:u_ym2610|*jt12_reg:u_reg|cur_op[*] *|jt10:u_ym2610|*jt12_lfo:*|lfo_mod[*] *|jt10:u_ym2610|*jt12_pg:u_pg|phinc_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|keycode_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|detune_mod_II[*] *|jt10:u_ym2610|*jt12_mmr:u_mmr|effect}]
 set jtdst [get_registers {*|jt10:u_ym2610|*jt12_pg:u_pg|phinc_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|keycode_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|detune_mod_II[*] *|jt10:u_ym2610|*jt12_pg:u_pg|jt12_sh_rst:u_pad|*}]
 if {[get_collection_size $jtsrc] > 0 && [get_collection_size $jtdst] > 0} {
     set_multicycle_path -setup -end 2 -from $jtsrc -to $jtdst
@@ -202,6 +216,52 @@ if {[get_collection_size $pcmsrc] > 0 && [get_collection_size $pcmdst] > 0} {
 }
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# OPL4 PCM engine -- runs on a clock enable, so everything inside it is 2-cycle
+# ---------------------------------------------------------------------------
+# opl4_pcm's FSM used to advance on every clk_sys edge. That made every path
+# inside it a genuine single-cycle path, which is why the two entries below
+# had to be narrow and argued case by case, and why the envelope rate chain
+# (c_oct/c_rc -> p_eg_inc) kept coming back as the design's worst family with
+# nothing legitimate to constrain.
+#
+# The engine now advances only on opl4.sv's pcm_cen, which is high every
+# other clk_sys cycle. It has the cycles: measured in simulation against the
+# real opl4 with all 24 channels keyed on, a pass took 553 of the 1948
+# clk_sys cycles between sample ticks before the change and 962 after -- 49%
+# of budget, so it still finishes with room.
+#
+# Audit (rtl/sound/opl4/opl4_pcm.sv). The whole case statement sits inside
+# `if (cen)`, so every register written there launches and captures only on
+# cen edges: two clk_sys periods, unconditionally, with no dependence on
+# which state follows which. That is a stronger argument than the state-
+# distance ones below, and it subsumes them -- they are left in place because
+# they are the same setup value and cost nothing, not because they are still
+# load-bearing.
+#
+# EXCLUDED, and this is the part that matters. A handful of registers in that
+# module are deliberately written at FULL rate and would be over-constrained
+# by a blanket rule:
+#   * fr_mem_valid / fr_mem_data, tick_pending, load_pending / load_ch --
+#     latches for one-clk_sys-wide pulses (mem_rd_valid, sample_tick,
+#     wavesel_stb) that a cen-only engine would otherwise miss.
+#   * mem_rd_req, pcm_hdr_we, key_consume -- cleared on every edge so they
+#     stay one cycle wide for opl4.sv's arbiter and opl4_regs. Their data
+#     inputs are therefore evaluated every edge.
+#   * ch_key -- a separate always_ff that is not cen-gated at all.
+# They are removed from both ends of the exception, so a path from a
+# full-rate latch into the engine still gets one cycle, which is what the
+# hardware does.
+set opl4all [get_registers {*|opl4_pcm:u_pcm|*}]
+set opl4fr  [get_registers {*|opl4_pcm:u_pcm|fr_mem_valid *|opl4_pcm:u_pcm|fr_mem_data[*] *|opl4_pcm:u_pcm|tick_pending *|opl4_pcm:u_pcm|load_pending *|opl4_pcm:u_pcm|load_ch[*] *|opl4_pcm:u_pcm|mem_rd_req *|opl4_pcm:u_pcm|pcm_hdr_we *|opl4_pcm:u_pcm|key_consume *|opl4_pcm:u_pcm|ch_key[*]}]
+set opl4cen [remove_from_collection $opl4all $opl4fr]
+if {[get_collection_size $opl4cen] > 0} {
+    set_multicycle_path -setup -end 2 -from $opl4cen -to $opl4cen
+    set_multicycle_path -hold  -end 1 -from $opl4cen -to $opl4cen
+} else {
+    post_message -type critical_warning         "Psikyo.sdc: OPL4 PCM cen multicycle NOT applied (empty collection)"
+}
+
 # OPL4 PCM output accumulate -> acc_l / acc_r
 #
 # With the envelope family above constrained, every remaining violated
@@ -241,55 +301,35 @@ if {[get_collection_size $accsrc] > 0 && [get_collection_size $accdst] > 0} {
 }
 
 # ---------------------------------------------------------------------------
-# HQ2x scandoubler blender (sys/hq2x.sv) -- ce_x4 cadence
+# HQ2x scandoubler blender (sys/hq2x.sv) -- constraint REMOVED 2026-09-05
 # ---------------------------------------------------------------------------
-# With every core-RTL family above constrained, the only clk_sys paths still
-# failing are 12 inside the framework's HQ2x blender, all Blend-internal
-# (df_rule -> i30 and friends, ~-0.1 ns). sys/ is vendored and not ours to
-# edit, and hq2x cannot be compiled out: sys/scandoubler.v's disable_hq2x is
-# a RUNTIME input (~hq2x from the OSD), and there is no parameter or `ifdef`
-# anywhere in hq2x.sv / scandoubler.v / video_mixer.sv / arcade_video.v. So
-# the blender is synthesized regardless of the Scandoubler Fx setting, and
-# the only lever left on our side of the boundary is this constraint.
-#
-# Audit (sys/hq2x.sv module Blend), same discipline as the entries above:
-#   * EVERY clocked block in Blend is `always @(posedge clk) if (clk_en)` --
-#     all four of them (the a/b/d/e/h/f + bl_rule/df_rule latch, the i10/
-#     i20/i30 + op0 case, the i1/i2/i3 + op pipeline, and Result). There is
-#     no ungated branch and no falling-edge logic in the module at all, so
-#     there is nothing here of the kind that made the old TG68K multicycle
-#     dangerous.
-#   * clk_en is the scandoubler's ce_x4i. arcade_video is instantiated with
-#     .clk_video(clk_sys) (Psikyo.sv), and our ce_pix is clk_sys/12, so
-#     sys/scandoubler.v measures pixsz=12 and pulses ce_x4i at pc_in ==
-#     pixsz4(3), pixsz2(6), pixsz2+pixsz4(9) and pixsz(12): once every 3
-#     clk_sys cycles, i.e. ~34.9 ns of real settling time against the 11.64
-#     ns the analyzer is currently demanding.
-#
-# THE EXCEPTION, stated plainly rather than buried. That 3-cycle spacing is
-# not unconditional: scandoubler.v also forces an enable on hsync,
+# There used to be a setup-2 multicycle on *|Hq2x:Hq2x|Blend:blender|* here.
+# It was added on 2026-09-01, when the only clk_sys paths still failing were
+# 12 Blend-internal ones at about -0.1 ns, and it was never a comfortable
+# exception: Blend's clk_en is the scandoubler's ce_x4i, normally one pulse
+# every 3 clk_sys cycles, but scandoubler.v also forces an enable on hsync
 #
 #     if((~hs & hs_in) || (pc_in >= pixsz)) begin ce_x4i <= 1; ...
 #
-# so an hsync rising edge landing one cycle after a regular pulse produces
-# two enables back to back, and for that ONE transition per scanline a
-# setup-2 exception is not backed by the hardware. It is accepted here
-# because the affected samples are hsync-time blanking pixels -- Blend is
-# four enable-stages deep, so the disturbance stays inside hsync and never
-# reaches a displayed pixel -- and because it can only ever affect the HQ2x
-# Fx setting, not the default or CRT scanline modes. If HQ2x output ever
-# shows an artifact at the left edge of the picture, THIS is the first thing
-# to suspect, and the fix is to drive clk_video from a slower dedicated PLL
-# output instead (the structurally correct fix, deferred as real work).
+# so for one transition per scanline the two cycles were not backed by the
+# hardware. The release notes said as much, calling HQ2x intentionally
+# broken to close timing.
 #
-# Scoped Blend-internal only: the failing paths are all inside it, and the
-# rule/pattern logic feeding it from hq2x_in runs on the same enable but has
-# not been audited here, so it is deliberately left at full rate.
-set blend [get_registers {*|Hq2x:Hq2x|Blend:blender|*}]
-if {[get_collection_size $blend] > 0} {
-    set_multicycle_path -setup -end 2 -from $blend -to $blend
-    set_multicycle_path -hold  -end 1 -from $blend -to $blend
-} else {
-    post_message -type critical_warning \
-        "Psikyo.sdc: no HQ2x Blend registers matched -- blender multicycle NOT applied"
-}
+# It is gone because it is no longer buying anything. Measured 2026-09-05 on
+# this tree, two fits at SEED 1 differing only in this constraint:
+#
+#     with the multicycle     worst -0.362   TNS -3.564
+#     without it              worst -0.335   TNS -0.516
+#
+# The slack figures are within placement noise of each other and are not the
+# point. The point is the composition of the failing set: with the exception
+# removed, NO HQ2x path appears in it at all -- every failing endpoint is
+# opl4_pcm envelope logic (c_oct/c_rc -> p_eg_inc), which fails identically
+# either way. The blender meets timing unaided now, presumably because the
+# design was retimed heavily after 2026-09-01 (the per-scanline sprite path
+# landed in that same release, the OPL4 work came after).
+#
+# So HQ2x output is no longer being traded away, and if this design ever goes
+# back to failing on Blend, the structurally correct fix is the one that was
+# deferred then: drive clk_video from a slower dedicated PLL output rather
+# than clk_sys, which removes the need for any exception here.
