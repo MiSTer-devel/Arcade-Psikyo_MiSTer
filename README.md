@@ -30,7 +30,7 @@ Supports the following games
 
 ## History
 
-* Arcade-Psikyo_20260907.rbf
+* Arcade-Psikyo_20260906.rbf
   * **HQ2X scaler reinstated**
   * Background/screen clear logic changed. Gives good results, but not completely got to the bottom of it.
   * MRAs now reference `<rbf>Psikyo</rbf>` without the `Arcade-` prefix, so the .rbf needs renaming when installing by hand (see below)
