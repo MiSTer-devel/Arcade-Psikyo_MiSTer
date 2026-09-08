@@ -7,7 +7,7 @@
 	<manufacturer>Psikyo (Banpresto license)</manufacturer>
 	<category>Shoot 'Em Up</category>
 	<rbf>Psikyo</rbf>
-	<rotation>vertical</rotation>
+	<rotation>vertical (ccw)</rotation>
 	<players>2</players>
 	<joystick>8-way</joystick>
 	<region>World</region>
