@@ -123,3 +123,9 @@ build_keep/
 
 # stray capture written when read_audio.tcl is run with the literal usage example
 outfile.bin
+/rtl/cpu/ss_cpu_stub.bin
+/rtl/cpu/ss_cpu_stub.lst
+
+# sim/flip_frame_tb/make_frame.py output: ROM regions, MAME snapshots and
+# renders derived from them.
+sim/flip_frame_tb/run/

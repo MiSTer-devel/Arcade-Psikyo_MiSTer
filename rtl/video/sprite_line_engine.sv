@@ -229,15 +229,32 @@ module sprite_line_engine (
 		.row_bytes(row_bytes_r), .flip_x(1'b0), .pixel(row_pixel)
 	);
 
-	logic [3:0] cur_pixel;
-	assign cur_pixel = row_pixel[zsi_src_col];
-
-	logic opaque;
-	assign opaque = !((cur_pixel == 4'd0 && trans_pen0) || (cur_pixel == 4'd15 && trans_pen15));
-
 	logic signed [10:0] screen_x_full;
 	assign screen_x_full = $signed({st_sub_x_r[9], st_sub_x_r}) + $signed({7'd0, dst_col});
 	wire onscreen = (screen_x_full >= 0) && (screen_x_full < 11'sd320);
+
+	// COLUMN PIPELINE STAGE. S_COL registers the column's source index,
+	// screen X and on-screen test here, and the pixel lookup, transparency
+	// test and line-buffer write happen on the following cycle. In one cycle,
+	// dst_col -> zoom source index (a multiply) -> 16:1 pixel select ->
+	// transparency compare -> fb_* was the worst path of the release build
+	// (-0.145ns, 9f70427 at seed 8). The one-cycle delay is safe:
+	//   - row_bytes_r cannot change under it. After a sub-tile's last column
+	//     the FSM needs S_LUT_WAIT and at least one S_ROW_WAIT cycle before
+	//     S_ROW_WAIT loads a new row, so the delayed write always reads the
+	//     row its column was stepped against.
+	//   - a_color/a_priority change only in S_CAPTURE, which S_SCAN precedes.
+	//   - the hard resync still stops stepping the cycle it fires; see the
+	//     second stage below for why its write needs no gate of its own.
+	logic       px_valid, px_onscreen;
+	logic [3:0] px_src_col;
+	logic [8:0] px_x;
+
+	logic [3:0] cur_pixel;
+	assign cur_pixel = row_pixel[px_src_col];
+
+	logic opaque;
+	assign opaque = !((cur_pixel == 4'd0 && trans_pen0) || (cur_pixel == 4'd15 && trans_pen15));
 
 	// ---- scan pipeline ----
 	// scan_addr issues one index per cycle; scan_ytest answers for the index
@@ -261,7 +278,10 @@ module sprite_line_engine (
 	} state_t;
 	state_t state;
 
-	assign busy = (state != S_IDLE);
+	// Covers the column pipeline too: the last column's write reaches fb_we
+	// two cycles after S_COL steps it, by which time the FSM can already be
+	// back in S_IDLE.
+	assign busy = (state != S_IDLE) || px_valid || fb_we;
 
 	// Hard resync: line_tick while rendering aborts the line. `aborting`
 	// suppresses writes the same cycle it sets; the FSM then drains any
@@ -277,6 +297,7 @@ module sprite_line_engine (
 			lut_req     <= 1'b0;
 			gfxrom_req  <= 1'b0;
 			fb_we        <= 1'b0;
+			px_valid     <= 1'b0;
 			ovr_ev       <= 1'b0;
 			aborting    <= 1'b0;
 			line_r       <= 8'd0;
@@ -297,8 +318,24 @@ module sprite_line_engine (
 			a_dx_x <= 17'd0; a_dx_y <= 17'd0;
 			for (int i = 0; i < 8; i++) row_bytes_r[i] <= 8'd0;
 		end else begin
-			fb_we   <= 1'b0;
-			ovr_ev <= 1'b0;
+			fb_we    <= 1'b0;
+			px_valid <= 1'b0;
+			ovr_ev   <= 1'b0;
+
+			// column pipeline, second stage: the write for the column S_COL
+			// stepped last cycle. No abort gate is needed here: S_COL only
+			// runs on a cycle with no resync, so px_valid already excludes
+			// one, and a write landing on the resync cycle itself still goes
+			// to the bank that line belongs to -- sprite_line_buffer swaps
+			// and starts clearing on the edge AFTER line_start is seen, which
+			// is exactly where the unstaged S_COL write used to land too.
+			if (px_valid && px_onscreen && opaque) begin
+				fb_we        <= 1'b1;
+				fb_x          <= px_x;
+				fb_pixel     <= cur_pixel;
+				fb_color     <= a_color;
+				fb_priority <= a_priority;
+			end
 
 			if (line_tick && state != S_IDLE) begin
 				// the line under construction is cut short
@@ -446,13 +483,10 @@ module sprite_line_engine (
 					end
 
 					S_COL: begin
-						if (onscreen && opaque) begin
-							fb_we        <= 1'b1;
-							fb_x          <= screen_x_full[8:0];
-							fb_pixel     <= cur_pixel;
-							fb_color     <= a_color;
-							fb_priority <= a_priority;
-						end
+						px_valid    <= 1'b1;
+						px_onscreen <= onscreen;
+						px_src_col  <= zsi_src_col;
+						px_x         <= screen_x_full[8:0];
 
 						if ({1'b0, dst_col} != a_dst_size_x - 5'd1) begin
 							dst_col <= dst_col + 4'd1;

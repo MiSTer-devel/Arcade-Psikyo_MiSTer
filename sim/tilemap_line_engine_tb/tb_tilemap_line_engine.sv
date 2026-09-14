@@ -33,6 +33,7 @@ module tb_tilemap_line_engine;
 	logic [15:0] base_x_scroll, base_y_scroll;
 	logic [1:0]  bank;
 	logic        rowscroll_enable, rowscroll_pertile;
+	logic        flip = 1'b0;   // unflipped here; sim/tilemap_flip_tb covers flip
 
 	logic [7:0]  rowscroll_addr;
 	logic [15:0] rowscroll_data;
@@ -49,6 +50,7 @@ module tb_tilemap_line_engine;
 	logic [3:0]  pixel_index;
 	logic [6:0]  pixel_color;
 	logic        fetch_overrun;
+	logic        overrun_ev;
 
 	tilemap_line_engine #(.LAYER(0)) dut (.*);
 

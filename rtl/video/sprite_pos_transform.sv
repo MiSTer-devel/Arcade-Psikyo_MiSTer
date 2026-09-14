@@ -14,8 +14,10 @@
 // written); it is NOT the same value sprite_zoom_lut consumes -- that
 // module takes the raw 0-15 value directly (see its header comment).
 //
-// flip_screen (a global DIP-controlled screen flip, psikyo_v.cpp:241-247)
-// is deliberately not handled here -- deferred, see docs/phase1_video_engine.md.
+// flip_screen (the DIP-controlled screen flip, psikyo_v.cpp:241-247) is not
+// handled here: the core renders the mirrored source line and reads the line
+// buffer right to left instead (psikyo_core.sv's flip_screen), which flips
+// sprites and tilemaps together.
 
 module sprite_pos_transform (
 	input  logic signed [9:0] x_pos,

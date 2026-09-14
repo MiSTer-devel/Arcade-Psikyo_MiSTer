@@ -99,6 +99,13 @@ def main():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     stage = os.path.join(here, "build")
 
+    # scripts/hwlock.py: a compile must not start while a JTAG tool is
+    # reading the device. One PC, one USB-Blaster, three cores -- the marker
+    # is machine-wide, so this also refuses while another core is probing.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from hwlock import require_no_jtag
+    require_no_jtag("this build")
+
     dirty = run(["git", "-C", here, "status", "--porcelain"])
     if dirty and not args.allow_dirty:
         sys.exit("tree is dirty -- commit first (the build is exactly HEAD), "

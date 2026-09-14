@@ -167,6 +167,21 @@ module psikyo_core #(
 		.line_start(line_start), .frame_start(frame_start)
 	);
 
+	// ---- Flip Screen DIP (SW2:1, DSW bit 16, active low) ----
+	// Wired straight to the video hardware: psikyo_v.cpp's flip_screen_set is
+	// "hardwired to a DSW bit", and the games do not react to it themselves --
+	// a MAME capture of every set with the DIP off and on gives identical
+	// sprite RAM, palette, VRAM and vregs at every frame sampled
+	// (scripts/mame_flip_capture.py). So the flipped screen is exactly the
+	// unflipped screen rotated 180 degrees: every layer renders screen line
+	// y from source line 223-y and reads it right to left. Latched at vblank
+	// so a change never tears a frame.
+	logic flip_screen;
+	always_ff @(posedge clk or posedge video_reset) begin
+		if (video_reset)      flip_screen <= 1'b0;
+		else if (frame_start) flip_screen <= ~dsw_in[16];
+	end
+
 	// ---- CPU-facing BRAM region ports (maincpu.sv's own port shapes) ----
 	logic [11:0] spr_cpu_addr;
 	logic         spr_cpu_wel, spr_cpu_weh;
@@ -770,7 +785,7 @@ module psikyo_core #(
 		.clk(clk), .reset(reset),
 		.vcnt(vcnt_next_active), .ce_pix(ce_pix), .h_active(h_active), .line_start(line_start),
 		.mode(l0_mode), .base_x_scroll(l0_base_x), .base_y_scroll(l0_base_y), .bank(l0_bank),
-		.rowscroll_enable(l0_rs_en), .rowscroll_pertile(l0_rs_pertile),
+		.rowscroll_enable(l0_rs_en), .rowscroll_pertile(l0_rs_pertile), .flip(flip_screen),
 		.rowscroll_addr(l0_rowscroll_addr), .rowscroll_data(l0_rowscroll_data),
 		.vram_addr(l0_vram_addr), .vram_data(l0_vram_data),
 		.gfxrom_req(l0_gfxrom_req), .gfxrom_addr(l0_gfxrom_addr),
@@ -783,7 +798,7 @@ module psikyo_core #(
 		.clk(clk), .reset(reset),
 		.vcnt(vcnt_next_active), .ce_pix(ce_pix), .h_active(h_active), .line_start(line_start),
 		.mode(l1_mode), .base_x_scroll(l1_base_x), .base_y_scroll(l1_base_y), .bank(l1_bank),
-		.rowscroll_enable(l1_rs_en), .rowscroll_pertile(l1_rs_pertile),
+		.rowscroll_enable(l1_rs_en), .rowscroll_pertile(l1_rs_pertile), .flip(flip_screen),
 		.rowscroll_addr(l1_rowscroll_addr), .rowscroll_data(l1_rowscroll_data),
 		.vram_addr(l1_vram_addr), .vram_data(l1_vram_data),
 		.gfxrom_req(l1_gfxrom_req), .gfxrom_addr(l1_gfxrom_addr),
@@ -1022,7 +1037,8 @@ module psikyo_core #(
 	sprite_line_engine u_sprite_line (
 		.clk(clk), .reset(reset),
 		.line_tick(line_start), .line_start(le_start),
-		.render_line(vcnt_next2_active),
+		// flipped: render the source line the screen line mirrors
+		.render_line(flip_screen ? 8'd223 - vcnt_next2_active : vcnt_next2_active),
 		.busy(le_busy), .ovr_ev(le_ovr_ev),
 		.trans_pen0(trans_pen0), .trans_pen15(trans_pen15),
 		.scan_addr(sl_scan_addr), .scan_ytest(sl_scan_ytest),
@@ -1044,7 +1060,9 @@ module psikyo_core #(
 		.line_start(line_start), .ready(lb_ready),
 		.we(le_fb_we), .wx(le_fb_x),
 		.wpixel(le_fb_pixel), .wcolor(le_fb_color), .wpriority(le_fb_priority),
-		.rx(hcnt),
+		// flipped: read the line right to left. Outside the active window
+		// the read is never displayed; hold it in range.
+		.rx(!flip_screen ? hcnt : (hcnt < 9'd320) ? 9'd319 - hcnt : 9'd0),
 		.rd_present(sp_present), .rd_pixel(sp_pixel),
 		.rd_color(sp_color), .rd_priority(sp_priority)
 	);

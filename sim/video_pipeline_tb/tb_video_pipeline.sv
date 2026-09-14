@@ -145,7 +145,7 @@ module tb_video_pipeline;
 		.clk(clk), .reset(reset_tle),
 		.vcnt(vcnt_active), .h_active(h_active), .line_start(line_start),
 		.mode(mode), .base_x_scroll(base_x_scroll), .base_y_scroll(base_y_scroll), .bank(bank),
-		.rowscroll_enable(rowscroll_enable), .rowscroll_pertile(rowscroll_pertile),
+		.rowscroll_enable(rowscroll_enable), .rowscroll_pertile(rowscroll_pertile), .flip(1'b0),
 		.rowscroll_addr(rowscroll_addr), .rowscroll_data(rowscroll_data),
 		.vram_addr(vram_addr), .vram_data(vram_data),
 		.gfxrom_req(gfxrom_req), .gfxrom_addr(gfxrom_addr), .gfxrom_valid(gfxrom_valid), .gfxrom_data(gfxrom_data),

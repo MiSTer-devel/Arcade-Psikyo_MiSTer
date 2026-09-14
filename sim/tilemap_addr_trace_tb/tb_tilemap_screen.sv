@@ -126,7 +126,7 @@ module tb_tilemap_screen;
 		.clk(clk), .reset(reset),
 		.vcnt(vcnt_active), .ce_pix(ce_pix), .h_active(h_active), .line_start(line_start),
 		.mode(l1_mode), .base_x_scroll(l1_base_x), .base_y_scroll(l1_base_y), .bank(l1_bank),
-		.rowscroll_enable(l1_rs_en), .rowscroll_pertile(l1_rs_pertile),
+		.rowscroll_enable(l1_rs_en), .rowscroll_pertile(l1_rs_pertile), .flip(1'b0),
 		.rowscroll_addr(l1_rowscroll_addr), .rowscroll_data(l1_rowscroll_data),
 		.vram_addr(l1_vram_addr), .vram_data(l1_vram_data),
 		.gfxrom_req(l1_gfxrom_req), .gfxrom_addr(l1_gfxrom_addr),

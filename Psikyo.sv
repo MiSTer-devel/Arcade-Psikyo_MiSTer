@@ -66,13 +66,13 @@ assign HDMI_BOB_DEINT = 0;
 // Required output once MISTER_FB is enabled; the rotator has no blanking need.
 assign FB_FORCE_BLANK = 0;
 
-// Audio comes from jt10 (YM2610) inside psikyo_top. Signed 16-bit, so
-// AUDIO_S = 1. YM2610 output is mono on this hardware (MAME routes
-// ALL_OUTPUTS to a single "mono" node), and jt10's snd_left/snd_right carry
-// the same content; both are wired so the framework's mixer sees a normal
-// stereo pair.
+// Audio comes from jt10 (YM2610) or the OPL4 inside psikyo_top. Signed
+// 16-bit, so AUDIO_S = 1. Every Psikyo board is mono (psikyo.cpp routes both
+// chips' ALL_OUTPUTS to a single "mono" speaker), but the OPL4's PCM channels
+// are panned, so the OSD's Stereo Mix defaults to mono: status 0 Mono
+// (AUDIO_MIX 3), 1 None (0), 2 25% (1), 3 50% (2).
 assign AUDIO_S   = 1;
-assign AUDIO_MIX = 0;
+assign AUDIO_MIX = status[80:79] - 2'd1;
 
 assign LED_DISK = 0;
 assign LED_POWER = 0;
@@ -125,6 +125,7 @@ localparam CONF_STR = {
 	"O[46:44],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"O[48:47],Rotation,Off,CW,CCW;",
 	"O[49],Flip 180,Off,On;",
+	"O[80:79],Stereo Mix,Mono,None,25%,50%;",
 	"H3O[78],Autosave Hiscores,Off,On;",
 	"O[64],CRT Adjust,Off,On;",
 	"H2O[71:65],CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,+16,+17,+18,+19,+20,+21,+22,+23,+24,+25,+26,+27,+28,+29,+30,+31,+32,+33,+34,+35,+36,+37,+38,+39,+40,+41,+42,+43,+44,+45,+46,+47,+48,-48,-47,-46,-45,-44,-43,-42,-41,-40,-39,-38,-37,-36,-35,-34,-33,-32,-31,-30,-29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
@@ -891,8 +892,10 @@ issp_probe #(.INSTANCE_ID("L")) u_issp_loader (
 `endif
 
 // ---- HDMI rotation / flip via the HPS framebuffer (sys DDRAM) ----
-// Psikyo boards are vertical (TATE), and flip_screen is not implemented in
-// the video pipeline itself -- both orientation and flip are handled here.
+// Psikyo boards are vertical (TATE); orientation and the OSD's Flip 180 are
+// handled here, for HDMI only. The Flip Screen DIP is separate: it is done in
+// the video pipeline (psikyo_core.sv's flip_screen), so it reaches the CRT
+// raster as well, which is what a cocktail cabinet needs.
 //
 // screen_rotate_two is Sorgelig's standard MiSTer rotator (GPL v2), taken
 // from Arcade-SKNS_MiSTer. It is a TAP, not a filter:

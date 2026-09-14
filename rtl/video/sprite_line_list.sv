@@ -119,20 +119,30 @@ module sprite_line_list (
 	sprite_zoom_lut u_zoom_lut_x (.raw_zoom(rd_zoom_x_raw), .dst_size(zl_dst_size_x), .dx(zl_dx_x));
 	sprite_zoom_lut u_zoom_lut_y (.raw_zoom(rd_zoom_y_raw), .dst_size(zl_dst_size_y), .dx(zl_dx_y));
 
+	// Decoded position, zoom and size, registered in S_FETCH so the bounding
+	// box below is computed from registers in S_TEST. In one cycle,
+	// rf_word_* -> decode -> position transform -> span multiply -> box adds
+	// and compares -> wr_en was a failing path of the release build (-0.151ns,
+	// 9f70427 at seed 8). Costs one cycle per sprite, in vblank.
+	logic [3:0]        q_ny, q_nx;
+	logic signed [9:0] q_y_adj, q_x_adj;
+	logic [5:0]        q_zoom_y_t, q_zoom_x_t;
+	logic [4:0]        q_dst_size_y, q_dst_size_x;
+
 	// Bounding box. (ny-1)*zoom_y_t is at most 7*32=224; >>1 is 112; plus
 	// dst_size_y (<=16) gives span <= 128, comfortably 8 bits. Same for X
 	// against its 9-bit span.
 	logic [7:0] span_y_c;
 	logic [8:0] span_x_c;
-	assign span_y_c = 8'((({4'd0, rd_ny - 4'd1} * {2'd0, pt_zoom_y_t}) >> 1) + {3'd0, zl_dst_size_y});
-	assign span_x_c = 9'((({4'd0, rd_nx - 4'd1} * {2'd0, pt_zoom_x_t}) >> 1) + {4'd0, zl_dst_size_x});
+	assign span_y_c = 8'((({4'd0, q_ny - 4'd1} * {2'd0, q_zoom_y_t}) >> 1) + {3'd0, q_dst_size_y});
+	assign span_x_c = 9'((({4'd0, q_nx - 4'd1} * {2'd0, q_zoom_x_t}) >> 1) + {4'd0, q_dst_size_x});
 
 	logic signed [10:0] y_bot_c, x_rgt_c;
-	assign y_bot_c = $signed({pt_y_adj[9], pt_y_adj}) + $signed({3'd0, span_y_c});
-	assign x_rgt_c = $signed({pt_x_adj[9], pt_x_adj}) + $signed({2'd0, span_x_c});
+	assign y_bot_c = $signed({q_y_adj[9], q_y_adj}) + $signed({3'd0, span_y_c});
+	assign x_rgt_c = $signed({q_x_adj[9], q_x_adj}) + $signed({2'd0, span_x_c});
 
-	wire box_visible = (y_bot_c > 0) && ($signed({pt_y_adj[9], pt_y_adj}) < 11'sd224)
-	                 && (x_rgt_c > 0) && ($signed({pt_x_adj[9], pt_x_adj}) < 11'sd320);
+	wire box_visible = (y_bot_c > 0) && ($signed({q_y_adj[9], q_y_adj}) < 11'sd224)
+	                 && (x_rgt_c > 0) && ($signed({q_x_adj[9], q_x_adj}) < 11'sd320);
 
 	// ---- table RAMs ----
 	logic [17:0] ytest_ram [0:1023];
@@ -156,7 +166,7 @@ module sprite_line_list (
 	// ---- build FSM ----
 	// One registered stage between record_valid and the table write keeps
 	// the whole decode chain out of the RAM-write timing path.
-	typedef enum logic [1:0] {S_IDLE, S_WALK, S_FETCH, S_STORE} state_t;
+	typedef enum logic [2:0] {S_IDLE, S_WALK, S_FETCH, S_TEST, S_STORE} state_t;
 	state_t state;
 
 	assign build_busy = (state != S_IDLE);
@@ -202,13 +212,26 @@ module sprite_line_list (
 
 				S_FETCH: begin
 					if (rf_record_valid) begin
-						// decode chain settles from the just-latched rf_word_*
-						// registers during this cycle; capture its verdict
-						wr_ytest <= {pt_y_adj, span_y_c};
-						wr_rec    <= {rf_word_y, rf_word_x, rf_word_attr, rf_word_code_lo};
-						wr_en     <= box_visible;
-						state      <= S_STORE;
+						// decode and position transform settle from the
+						// just-latched rf_word_* registers; register them for
+						// the box test
+						q_ny          <= rd_ny;
+						q_nx          <= rd_nx;
+						q_y_adj       <= pt_y_adj;
+						q_x_adj       <= pt_x_adj;
+						q_zoom_y_t    <= pt_zoom_y_t;
+						q_zoom_x_t    <= pt_zoom_x_t;
+						q_dst_size_y <= zl_dst_size_y;
+						q_dst_size_x <= zl_dst_size_x;
+						wr_rec        <= {rf_word_y, rf_word_x, rf_word_attr, rf_word_code_lo};
+						state          <= S_TEST;
 					end
+				end
+
+				S_TEST: begin
+					wr_ytest <= {q_y_adj, span_y_c};
+					wr_en     <= box_visible;
+					state      <= S_STORE;
 				end
 
 				S_STORE: begin

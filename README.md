@@ -28,7 +28,14 @@ Supports the following games
 | Strikers 1945 |  1995 | SH403 / SH404 | SH403 (Unprotected) is similar to KA302C |
 | Sengoku Blade: Sengoku Ace Episode II (Japan) / Tengai (World) | 1996 | SH404 | | | SH404 has MCU, YMF278B for sound, and gfx banking. See `docs/phase2_sh404.md` |
 
+Refs: https://buffis.com/research/input-lag-in-psikyo-games-in-mame/
+
 ## History
+
+* Arcade-Psikyo_20260914.rbf
+  * **Flip Screen DIP implemented**
+  * Stereo Mix OSD option - defaulting to mono as the PCB was only Mono
+  * OPL4 fixes
 
 * Arcade-Psikyo_20260906.rbf
   * **HQ2X scaler reinstated**
@@ -114,7 +121,7 @@ As per norm:
 
 Games are in good shape, with minor graphical issues around screen clear.
 The release revision closes timing (worst-case clk_sys setup slack
-+0.126 ns, zero failing paths on any clock).
++0.480 ns, zero failing paths on any clock).
 
 Details:
 
@@ -139,7 +146,6 @@ Details:
 
 ### Todo
 
-- [ ] Implement the Flipscreen DIP, for CRT owners
 - [ ] Screen Clear / background colour is still unclear. Currently taken from the highest priority visible tilemap, falling back to pen 0
 - [ ] Port to the Analogue Pocket (openFPGA) - looking unlikely
 

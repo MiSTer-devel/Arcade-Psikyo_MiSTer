@@ -114,6 +114,7 @@ module opl4 (
 
 	// ---- register block ----
 	logic [7:0] pcm_raddr, pcm_rdata;
+	logic       pcm_rlive, pcm_snap;
 	logic        pcm_hdr_we;
 	logic [7:0] pcm_hdr_waddr, pcm_hdr_wdata;
 	logic        keyon_stb, keyon_val, wavesel_stb;
@@ -127,6 +128,7 @@ module opl4 (
 		.addr(addr), .rd(rd_stb), .wr(wr_stb), .din(din), .dout(dout),
 		.irq_n(irq_n),
 		.pcm_raddr(pcm_raddr), .pcm_rdata(pcm_rdata),
+		.pcm_rlive(pcm_rlive), .pcm_snap(pcm_snap),
 		.pcm_hdr_we(pcm_hdr_we), .pcm_hdr_waddr(pcm_hdr_waddr), .pcm_hdr_wdata(pcm_hdr_wdata),
 		.pcm_keyon_stb(keyon_stb), .pcm_keyon_ch(keyon_ch), .pcm_keyon_val(keyon_val),
 		.pcm_wavesel_stb(wavesel_stb), .pcm_wavesel_ch(wavesel_ch),
@@ -179,6 +181,7 @@ module opl4 (
 	opl4_pcm u_pcm (
 		.clk(clk), .reset(reset), .cen(pcm_cen), .sample_tick(sample_tick),
 		.pcm_raddr(pcm_raddr), .pcm_rdata(pcm_rdata),
+		.pcm_rlive(pcm_rlive), .pcm_snap(pcm_snap),
 		.pcm_hdr_we(pcm_hdr_we), .pcm_hdr_waddr(pcm_hdr_waddr), .pcm_hdr_wdata(pcm_hdr_wdata),
 		.keyon_stb(keyon_stb), .keyon_ch(keyon_ch), .keyon_val(keyon_val),
 		.wavesel_stb(wavesel_stb), .wavesel_ch(wavesel_ch),
@@ -190,29 +193,74 @@ module opl4 (
 
 	// ---- wave ROM read arbitration (engine wins; one in flight) ----
 	logic owner_rw;   // 0 = pcm engine owns the in-flight read, 1 = reg window
+	// MEMORY ARBITER -- REQUESTS ARE LATCHED, NOT SAMPLED WHEN IDLE.
+	// (Found and fixed in Arcade-Fuuki_MiSTer, which uses this same file;
+	// carried over so the two copies stay the same file.)
+	//
+	// Both clients PULSE their request for one cycle and then wait for a
+	// valid: opl4_pcm clears mem_rd_req every cycle, and opl4_regs sets
+	// mem_pending and pulses once, taking the next request only when
+	// !mem_pending. Sampling those pulses only in `!busy_mem` therefore
+	// DROPS any request raised while the other client's fetch is in flight,
+	// and the loser then waits for a valid that can never come.
+	//
+	// For the register side that is fatal and permanent: mem_pending sticks
+	// at 1, so every later header or register read is dead too. It fires
+	// exactly when a one-shot sound effect starts -- a new wave selection
+	// loads its wavetable header at the moment the PCM engine is busiest --
+	// which is why on Asura Buster music played and single-shot effects and
+	// the coin chime never did, and why once it happened nothing recovered
+	// until a reset.
+	//
+	// So each side gets a pending flag with its address latched, and a
+	// request arriving in the same cycle one is consumed re-arms it (NBA
+	// last-assignment-wins). The register side is served FIRST when both
+	// are waiting: its reads are rare -- header loads and register reads,
+	// not a sample stream -- so it costs the PCM path almost nothing, and
+	// it makes starvation impossible rather than merely unlikely.
 	logic busy_mem;
+	logic        pcm_pend, rw_pend;
+	logic [21:0] pcm_addr_q, rw_addr_q;
 	always_ff @(posedge clk or posedge reset) begin
 		if (reset) begin
 			busy_mem  <= 1'b0;
 			owner_rw  <= 1'b0;
 			mem_rd_req <= 1'b0;
 			mem_rd_addr <= 22'd0;
+			pcm_pend   <= 1'b0;
+			rw_pend    <= 1'b0;
+			pcm_addr_q <= 22'd0;
+			rw_addr_q  <= 22'd0;
 		end else begin
 			mem_rd_req <= 1'b0;
+
 			if (!busy_mem) begin
-				if (pcm_mem_req) begin
-					busy_mem   <= 1'b1;
-					owner_rw   <= 1'b0;
-					mem_rd_req <= 1'b1;
-					mem_rd_addr <= pcm_mem_addr;
-				end else if (rw_mem_req) begin
-					busy_mem   <= 1'b1;
-					owner_rw   <= 1'b1;
-					mem_rd_req <= 1'b1;
-					mem_rd_addr <= rw_mem_addr;
+				if (rw_pend) begin
+					busy_mem    <= 1'b1;
+					owner_rw    <= 1'b1;
+					mem_rd_req  <= 1'b1;
+					mem_rd_addr <= rw_addr_q;
+					rw_pend     <= 1'b0;
+				end else if (pcm_pend) begin
+					busy_mem    <= 1'b1;
+					owner_rw    <= 1'b0;
+					mem_rd_req  <= 1'b1;
+					mem_rd_addr <= pcm_addr_q;
+					pcm_pend    <= 1'b0;
 				end
 			end else if (mem_rd_valid) begin
 				busy_mem <= 1'b0;
+			end
+
+			// AFTER the grant, so a pulse arriving on the cycle its pending
+			// flag is consumed is kept rather than lost.
+			if (pcm_mem_req) begin
+				pcm_pend   <= 1'b1;
+				pcm_addr_q <= pcm_mem_addr;
+			end
+			if (rw_mem_req) begin
+				rw_pend   <= 1'b1;
+				rw_addr_q <= rw_mem_addr;
 			end
 		end
 	end

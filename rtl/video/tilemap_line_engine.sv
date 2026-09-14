@@ -45,6 +45,13 @@ module tilemap_line_engine #(
 	input  logic         rowscroll_enable,
 	input  logic         rowscroll_pertile,
 
+	// Flip Screen DIP: the screen is the unflipped screen rotated 180
+	// degrees. Screen line y shows source line 223-y (so the rowscroll table
+	// is read bottom-up too), and screen column x shows source column 319-x,
+	// so the line is fetched from its right-hand end and walked backwards.
+	// Sampled at line_start.
+	input  logic         flip,
+
 	// Row-scroll table read port (module-local index 0-255 within this
 	// layer's table; caller adds the layer's base offset when addressing
 	// the shared vregs BRAM). 1-cycle synchronous read latency.
@@ -184,10 +191,10 @@ module tilemap_line_engine #(
 	logic [PTR_W-1:0] fetch_target;   // which buffer index the fetch engine is filling
 
 	// sampled at line_start, held stable through S_ROWSCROLL_WAIT
-	logic [15:0] base_x_scroll_latched;
+	logic [15:0] base_x_first_latched;
 	logic        rowscroll_en_latched;
+	logic        flip_latched;
 
-	logic [15:0] line_x_scroll;
 	// One-PIXEL alignment bias, measured on real hardware against the MAME
 	// reference (reported by the author of MAME's Psikyo renderer):
 	// screen_x shows tilemap pixel (scroll + screen_x + 1), moving the
@@ -196,7 +203,20 @@ module tilemap_line_engine #(
 	// inherit it (same module). The SIGN is hardware-verified -- do not
 	// flip it from re-derivation alone (docs/LESSONS_LEARNED.md,
 	// "Don't guess a sign twice").
-	assign line_x_scroll = base_x_scroll_latched + (rowscroll_en_latched ? rowscroll_data : 16'd0) + 16'd1;
+	//
+	// Flip Screen: screen line y shows source line 223-y (so the rowscroll
+	// table is read bottom-up too) and screen column c shows source column
+	// 319-c, with the fetch walking left. The first pixel of the line reaches
+	// the screen at column 1, not 0: it is registered on the ce_pix edge that
+	// advances hcnt. Unflipped that column is scroll + 1, which is the +1
+	// above. Flipped it must be source column 318, so the line starts at
+	// tilemap pixel scroll + 318. (scroll + 320 -- 319 plus the unflipped bias
+	// -- put every tilemap two pixels right of the rotated picture;
+	// sim/flip_frame_tb measured it and sim/tilemap_flip_tb now checks by
+	// screen column.) The constant is folded in at line_start so the per-line
+	// sum below stays a single add behind the rowscroll RAM.
+	wire [7:0]  src_line     = flip ? (8'd223 - vcnt) : vcnt;
+	wire [15:0] line_x_first = base_x_first_latched + (rowscroll_en_latched ? rowscroll_data : 16'd0);
 
 	logic [14:0] tile_number_reg;
 	logic [6:0]  color_reg;
@@ -310,17 +330,18 @@ module tilemap_line_engine #(
 			// line_start handling below, so there is no stale data to
 			// preserve here either.
 			mode_latched          <= mode;
+			flip_latched          <= flip;
 			bank_latched          <= bank;
-			base_x_scroll_latched <= base_x_scroll;
+			base_x_first_latched  <= base_x_scroll + (flip ? 16'd318 : 16'd1);
 			rowscroll_en_latched  <= rowscroll_enable;
-			rowscroll_addr        <= rowscroll_pertile ? {4'd0, vcnt[7:4]} : vcnt;
+			rowscroll_addr        <= rowscroll_pertile ? {4'd0, src_line[7:4]} : src_line;
 			for (int i = 0; i < PREFETCH_DEPTH; i++) fetch_tog[i] <= 1'b0;
 			fetch_target          <= '0;
 			first_tile            <= 1'b1;
 			tiles_to_fetch        <= 5'd21;  // fixed worst-case count, see doc
 			gfxrom_req_r          <= 1'b0;   // abort any in-flight request cleanly
 			// stash what S_ROWSCROLL_WAIT needs that isn't re-derivable there
-			eff_y_latched         <= base_y_scroll + {8'd0, vcnt};
+			eff_y_latched         <= base_y_scroll + {8'd0, src_line};
 			state                 <= S_ROWSCROLL_WAIT;
 		end else begin
 			unique case (state)
@@ -337,7 +358,7 @@ module tilemap_line_engine #(
 					// at the end of THIS cycle and its data is not valid
 					// until the next one (the port's documented 1-cycle
 					// synchronous read; rtl/memory/dpram.sv port B).
-					// Consuming line_x_scroll here read whatever address was
+					// Consuming line_x_first here read whatever address was
 					// standing before -- i.e. the PREVIOUS line's entry, so
 					// every line was scrolled by its neighbour's value. Only
 					// visible where the table changes sharply line to line
@@ -347,10 +368,10 @@ module tilemap_line_engine #(
 				end
 
 				S_ROWSCROLL_WAIT2: begin
-					// line_x_scroll is a comb wire (below) so no procedural
+					// line_x_first is a comb wire (above) so no procedural
 					// temp is needed here.
-					fine_x_initial <= line_x_scroll[3:0];
-					fetch_eff_x    <= {line_x_scroll[15:4], 4'd0};   // tile-align
+					fine_x_initial <= line_x_first[3:0];
+					fetch_eff_x    <= {line_x_first[15:4], 4'd0};   // tile-align
 					state          <= S_WAIT_FREE;
 				end
 
@@ -396,11 +417,16 @@ module tilemap_line_engine #(
 						buf_src_addr[fetch_target] <= fetch_vram_addr;
 						buf_src_word[fetch_target] <= vram_data_reg;
 `endif
+						// The first tile starts at the fine offset either way.
+						// Unflipped it shows fine..15 moving right; flipped it
+						// shows fine..0 moving left, and every later tile
+						// starts from its far end (15) instead of 0.
 						if (first_tile) begin
 							buf_start[fetch_target] <= fine_x_initial;
-							buf_count[fetch_target] <= 5'd16 - {1'b0, fine_x_initial};
+							buf_count[fetch_target] <= flip_latched ? {1'b0, fine_x_initial} + 5'd1
+							                                        : 5'd16 - {1'b0, fine_x_initial};
 						end else begin
-							buf_start[fetch_target] <= 4'd0;
+							buf_start[fetch_target] <= flip_latched ? 4'd15 : 4'd0;
 							buf_count[fetch_target] <= 5'd16;
 						end
 						state <= S_STORE_DONE;
@@ -410,7 +436,7 @@ module tilemap_line_engine #(
 				S_STORE_DONE: begin
 					fetch_tog[fetch_target] <= ~fetch_tog[fetch_target];
 					first_tile              <= 1'b0;
-					fetch_eff_x             <= fetch_eff_x + 16'd16;
+					fetch_eff_x             <= flip_latched ? fetch_eff_x - 16'd16 : fetch_eff_x + 16'd16;
 					tiles_to_fetch          <= tiles_to_fetch - 5'd1;
 					fetch_target            <= (fetch_target == PREFETCH_DEPTH-1) ? '0 : fetch_target + 1'b1;
 					if (tiles_to_fetch > 5'd1)
@@ -468,7 +494,8 @@ module tilemap_line_engine #(
 			if (ce_pix) begin
 				if (buf_ready[display_sel]) begin
 					pixel_valid <= 1'b1;
-					pixel_index <= buf_pixels[display_sel][buf_start[display_sel] + consumed];
+					pixel_index <= buf_pixels[display_sel][flip_latched ? buf_start[display_sel] - consumed
+					                                                    : buf_start[display_sel] + consumed];
 					pixel_color <= buf_color[display_sel];
 `ifdef DEBUG_ISSP
 					dbg_pixel_src_addr <= buf_src_addr[display_sel];
