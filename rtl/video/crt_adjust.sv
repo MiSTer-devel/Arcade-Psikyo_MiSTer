@@ -1,16 +1,12 @@
 //============================================================================
-//  VENDORED, UNMODIFIED, from rmonic79/Arcade-Raiden_MiSTer
+//  VENDORED from rmonic79/Arcade-Raiden_MiSTer
 //  (rtl/Raiden/crt_adjust.sv), the reference implementation for this
 //  control. Author: Umberto Parisi (rmonic79), GPL v3 or later -- same
 //  licence as this project. Do not edit locally: re-vendor from upstream so
 //  fixes there (e.g. the 97-entry H-Position wrap) carry over.
 //
-//  This core wires H-Position and V-Shift only ("CRT Offset"); `hsize` is
-//  tied to 0, which the module documents as pure no-scaling passthrough with
-//  the offsets still live. H-Size additionally needs an external variable
-//  read-rate generator for pxl2_cen (Raiden builds one from clk quarters);
-//  with hsize=0 the read rate equals the write rate, so pxl2_cen is simply
-//  the core's own ce_pix and no such generator is needed.
+//  One local fix (LOCAL FIX below): hoff_s's ?: must stay signed, or negative
+//  H-Position is zero-extended and blanks the picture.
 //============================================================================
 //============================================================================
 //  crt_adjust.sv  —  "CRT Adjust"
@@ -331,7 +327,7 @@ module crt_adjust #(
     // offset is forced to 0 here and hb1/hb0 keep gating the native active area.
     wire signed [AW+1:0] hoff_s  = (HPOS_MODE == `HPOS_CONTENTSHIFT)
                                    ? $signed(hoffset)
-                                   : {(AW+2){1'b0}};
+                                   : $signed({(AW+2){1'b0}});   // LOCAL FIX
     wire signed [AW+1:0] rdcnt_s = $signed({2'b0, rdcnt});
     wire signed [AW+1:0] hb1_s   = $signed({2'b0, hb1});
     wire signed [AW+1:0] hb0_s   = $signed({2'b0, hb0});

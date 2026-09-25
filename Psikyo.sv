@@ -130,6 +130,9 @@ localparam CONF_STR = {
 	"O[64],CRT Adjust,Off,On;",
 	"H2O[71:65],CRT H-Position,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,+16,+17,+18,+19,+20,+21,+22,+23,+24,+25,+26,+27,+28,+29,+30,+31,+32,+33,+34,+35,+36,+37,+38,+39,+40,+41,+42,+43,+44,+45,+46,+47,+48,-48,-47,-46,-45,-44,-43,-42,-41,-40,-39,-38,-37,-36,-35,-34,-33,-32,-31,-30,-29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
 	"H2O[77:72],CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,+16,+17,+18,+19,+20,+21,+22,+23,+24,+25,+26,+27,+28,+29,+30,+31,-32,-31,-30,-29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+	"H2O[85:81],CRT H-Size,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,+11,+12,+13,+14,+15,-16,-15,-14,-13,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;",
+	"H2O[89:86],CRT V-Size,0,+1,+2,+3,+4,+5,+6,+7,-7,-6,-5,-4,-3,-2,-1;",
+	"H2O[90],CRT V-Size Mode,PVM,Cabinet;",
 	"-;",
 	"DIP;",
 	"-;",
@@ -705,7 +708,7 @@ psikyo_top #(.BOARD_GUNBIRD(1'b0), .DEBUG_TRACER(DEBUG_TRACER_EN)) psikyo_top
 // The debug overlay is injected BEFORE arcade_video so it still works, but note
 // that scanlines/gamma will alter the pixel values the decoder reads -- keep
 // fx=0 and gamma off when capturing a trace, or the decode is meaningless.
-// ---- CRT Offset (rtl/video/crt_adjust.sv, vendored from Arcade-Raiden_MiSTer) ----
+// ---- CRT Adjust (rtl/video/crt_chain.sv) ----
 // Slides the picture on an analog CRT without ever touching the sync: the
 // CONTENT is moved inside a line buffer while HSync/VSync stay native, so the
 // monitor keeps its lock while you adjust. Sits between the core's raster and
@@ -714,45 +717,49 @@ psikyo_top #(.BOARD_GUNBIRD(1'b0), .DEBUG_TRACER(DEBUG_TRACER_EN)) psikyo_top
 // image. NOTE this core is rotated: on the HDMI/rotated output H-Position
 // moves the image vertically and V-Shift horizontally, since both act on the
 // NATIVE raster, which is what a real CRT in a TATE cabinet wants.
-//
-// Only the two offsets are wired ("CRT Offset"); hsize is tied to 0, the
-// module's documented no-scaling case, which also makes the read rate equal
-// the write rate so pxl2_cen is just ce_pix. H-Size would additionally need a
-// variable read-rate generator (Raiden builds one from clk quarters).
-wire crt_adj_on = status[64];
+// H-Size and V-Size are 15 kHz only; PVM-mode V-Size retimes the lines.
+wire crt_adj_on   = status[64];
+wire crt_scale_en = ~(forced_scandoubler | |status[46:44]);
 // H-Position: the OSD stores the INDEX into the option list, and that list has
 // 97 entries (0, +1..+48, -48..-1) -- so the negative half wraps at 97, NOT at
 // 128. Raiden hit exactly this: wrapping at 128 made "-1" jump 32 pixels.
-wire  [6:0] crt_hpos_idx = crt_adj_on ? status[71:65] : 7'd0;
+wire  [6:0] crt_hpos_idx = status[71:65];
 wire signed [8:0] crt_hoffset = (crt_hpos_idx <= 7'd48)
 	? $signed({2'b00, crt_hpos_idx})
 	: $signed({2'b00, crt_hpos_idx}) - 9'sd97;
 // V-Shift is a plain signed 6-bit field: its 64-entry list (0..+31, -32..-1)
 // IS two's complement, so no wrap fixup is needed.
-wire signed [5:0] crt_voffset = crt_adj_on ? $signed(status[77:72]) : 6'sd0;
+wire signed [5:0] crt_voffset = $signed(status[77:72]);
+wire signed [4:0] crt_hsize   = $signed(status[85:81]);
+// V-Size's list has 15 entries, so its negative half wraps at 15, not 16.
+wire  [3:0] crt_vsz_idx  = status[89:86];
+wire signed [3:0] crt_vsz_step = (crt_vsz_idx <= 4'd7)
+	? $signed(crt_vsz_idx)
+	: $signed(crt_vsz_idx - 4'd15);
 
+wire       crt_ce;
 wire [7:0] crt_r, crt_g, crt_b;
 wire       crt_hs, crt_vs, crt_hb, crt_vb;
 
-crt_adjust #(
-	.VTOTAL   (262),
-	.HTOTAL   (456),
-	// CONTENTSHIFT keeps HSync byte-for-byte native (SYNCSHIFT moves the sync
-	// itself); this is the mode Raiden ships and the safer one for sync lock.
-	.HPOS_MODE(1)
-) u_crt_adjust (
-	.clk      (clk_sys),
-	.pxl_cen  (ce_pix),
-	.pxl2_cen (ce_pix),      // hsize tied 0 -> read rate == write rate
-	.active   (crt_adj_on),
-	.hsize    (5'sd0),
-	.hoffset  (crt_hoffset),
-	.voffset  (crt_voffset),
+crt_chain crt_chain
+(
+	.clk(clk_sys),
+	.ce_pix(ce_pix),
+
+	.active(crt_adj_on),
+	.scale_en(crt_scale_en),
+	.hoffset(crt_hoffset),
+	.voffset(crt_voffset),
+	.hsize(crt_hsize),
+	.vsize_step(crt_vsz_step),
+	.vsize_cabinet(status[90]),
+
 	.r_in(r8_raw), .g_in(g8_raw), .b_in(b8_raw),
 	.hs_in(hsync), .vs_in(vsync), .hb_in(hblank), .vb_in(vblank),
+
+	.ce_out(crt_ce),
 	.r_out(crt_r), .g_out(crt_g), .b_out(crt_b),
-	.hs_out(crt_hs), .vs_out(crt_vs), .hb_out(crt_hb), .vb_out(crt_vb),
-	.hs_ref_out()
+	.hs_out(crt_hs), .vs_out(crt_vs), .hb_out(crt_hb), .vb_out(crt_vb)
 );
 
 wire [7:0] r8_raw = dbg_overlay ? dbg_pixel[23:16] : {rgb[14:10], rgb[14:12]};
@@ -762,7 +769,7 @@ wire [7:0] b8_raw = dbg_overlay ? dbg_pixel[7:0]   : {rgb[4:0],   rgb[4:2]};
 arcade_video #(.WIDTH(320), .DW(24), .GAMMA(1)) arcade_video
 (
 	.clk_video(clk_sys),
-	.ce_pix(ce_pix),
+	.ce_pix(crt_ce),
 
 	.RGB_in({crt_r, crt_g, crt_b}),
 	.HBlank(crt_hb),

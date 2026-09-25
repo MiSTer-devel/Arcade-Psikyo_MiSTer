@@ -136,9 +136,11 @@ Details:
   replaced a 1.7 Mbit whole-frame buffer, which is where most of the block RAM
   used to go. A per-frame pass builds a compact display-list table in vblank so
   the per-line cost stays affordable. See `docs/sprite_buffering.md`.
-* Rotation and 180° flip over HDMI via the HPS framebuffer, H-Position and V-Offset
-  from CRT Offset. H-Size/V-Size are still not implemented, but the block RAM that
-  blocked them is now free -- see Resource usage.
+* Rotation and 180° flip over HDMI via the HPS framebuffer
+* CRT Adjust (rmonic79's CRT Adjust / CRT V-Size modules) for analog 15 kHz output:
+  H-Position, V-Shift, H-Size, and V-Size with PVM (line retimer) and Cabinet
+  (native timing) modes. H-Size and V-Size are held at 0 while the scandoubler
+  is on. HDMI follows the adjustment while CRT Adjust is On.
 * CPU pause button suspends main CPU (only)
 * Fast ROM loading via DDR
 * Hiscore saving (with auto-saving)
