@@ -32,6 +32,10 @@ Refs: https://buffis.com/research/input-lag-in-psikyo-games-in-mame/
 
 ## History
 
+* Arcade-Psikyo_20260926.rbf
+  * **CRT Adjust H-Size and V-Size**, negative H-Position fixed (gokeeper, PR #7)
+  * MRAs: `<rotation>vertical (ccw)</rotation>` for all vertical sets, matching MAME
+
 * Arcade-Psikyo_20260914.rbf
   * **Flip Screen DIP implemented**
   * Stereo Mix OSD option - defaulting to mono as the PCB was only Mono
@@ -121,7 +125,7 @@ As per norm:
 
 Games are in good shape, with minor graphical issues around screen clear.
 The release revision closes timing (worst-case clk_sys setup slack
-+0.480 ns, zero failing paths on any clock).
++0.494 ns, zero failing paths on any clock).
 
 Details:
 
